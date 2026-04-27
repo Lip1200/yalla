@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.modules.challenges.router import router as challenges_router
 from src.modules.doctors.router import router as doctors_router
+from src.modules.patients.router import router as patients_router
 from src.modules.restaurants.router import router as restaurants_router
 from src.modules.social.router import router as social_router
 from src.modules.users.router import router as users_router
@@ -20,6 +21,12 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+        "http://localhost:19006",
+        "http://127.0.0.1:19006",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -31,6 +38,7 @@ app.include_router(challenges_router, prefix="/api/challenges", tags=["challenge
 app.include_router(social_router, prefix="/api/social", tags=["social"])
 app.include_router(restaurants_router, prefix="/api/restaurants", tags=["restaurants"])
 app.include_router(doctors_router, prefix="/api/doctors", tags=["doctors"])
+app.include_router(patients_router, prefix="/api/patients", tags=["patients"])
 
 
 @app.get("/")

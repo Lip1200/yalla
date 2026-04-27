@@ -20,6 +20,7 @@ __pycache__/
 # Distribution / Packaging
 build/
 node_modules/
+.expo/
 develop-eggs/
 dist/
 downloads/
