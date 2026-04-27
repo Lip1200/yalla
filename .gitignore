@@ -1,0 +1,73 @@
+# Environnements virtuels
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# Fichiers de configuration locaux
+*.env
+.env.local
+.env.*.local
+
+# Python / Fichiers compilés
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / Packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Bases de données locales
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Logs
+logs/
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.smapper
+
+# MyPy / Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# IDE et Éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
