@@ -14,7 +14,6 @@ from src.modules.patients.schemas import (
     PostType,
     PrivacySettingsUpdate,
     Progression,
-    RestaurantRecommendation,
     SessionKind,
     SupportSession,
     SupportSessionCreate,
@@ -59,32 +58,7 @@ challenges: dict[int, list[Challenge]] = {
     ],
 }
 
-restaurants: list[RestaurantRecommendation] = [
-    RestaurantRecommendation(
-        id=1,
-        name="Maison Verte",
-        area="Centre-ville",
-        diabetes_friendly_score=92,
-        best_for="Déjeuner léger",
-        notes="Options riches en légumes, portions modulables et desserts sans sucre ajouté.",
-    ),
-    RestaurantRecommendation(
-        id=2,
-        name="Atlas Bowl",
-        area="Plainpalais",
-        diabetes_friendly_score=87,
-        best_for="Repas rapide équilibré",
-        notes="Bowls personnalisables avec céréales complètes, protéines maigres et sauces séparées.",
-    ),
-    RestaurantRecommendation(
-        id=3,
-        name="Le Jardin Simple",
-        area="Eaux-Vives",
-        diabetes_friendly_score=82,
-        best_for="Dîner calme",
-        notes="Carte claire, plats grillés, accompagnements légumes disponibles.",
-    ),
-]
+
 
 conversations: dict[int, list[Conversation]] = {
     101: [
@@ -213,9 +187,7 @@ def get_progression(patient_id: int) -> Progression:
     )
 
 
-def list_restaurants(patient_id: int) -> list[RestaurantRecommendation]:
-    get_profile(patient_id)
-    return restaurants
+
 
 
 def list_conversations(patient_id: int) -> list[Conversation]:

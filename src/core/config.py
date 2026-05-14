@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     )
     api_secret_token: str = "yalla-secret-token"  # Static fallback token for MVP security validation
 
+    # TheFork integration — empty api_key activates mock mode for MVP demos
+    thefork_api_key: str = ""
+    thefork_base_url: str = "https://api.thefork.io/manager/v1"
+
 
     model_config = SettingsConfigDict(
         env_file=".env",
