@@ -19,6 +19,8 @@ __pycache__/
 
 # Distribution / Packaging
 build/
+node_modules/
+.expo/
 develop-eggs/
 dist/
 downloads/
@@ -71,3 +73,13 @@ dmypy.json
 *.swo
 *~
 .DS_Store
+desktop.ini
+
+# Agents IA / LLMs
+.agent/
+.claude/
+.gemini/
+.cursor/
+.cursorrules
+.aider*
+
