@@ -126,9 +126,16 @@ def get_profile(patient_id: int) -> PatientProfile:
     return _row_to_profile(response.data[0])
 
 
-def list_feed(patient_id: int) -> list[FeedPost]:
+def list_feed(patient_id: int, limit: int = 20, offset: int = 0) -> list[FeedPost]:
     get_profile(patient_id)
-    response = supabase_client.table("feed_posts").select("*").order("created_at", desc=True).execute()
+    # Apply standard Supabase pagination range slicing: range(offset, offset + limit - 1)
+    response = (
+        supabase_client.table("feed_posts")
+        .select("*")
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
 
     posts = []
     for row in response.data:

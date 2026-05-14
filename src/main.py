@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.core.config import settings
 from src.modules.challenges.router import router as challenges_router
 from src.modules.doctors.router import router as doctors_router
 from src.modules.patients.router import router as patients_router
@@ -14,24 +15,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Dynamically parse permitted origins from settings
+origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-        "http://localhost:19006",
-        "http://127.0.0.1:19006",
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.include_router(users_router, prefix="/api/users", tags=["users"])
 app.include_router(challenges_router, prefix="/api/challenges", tags=["challenges"])

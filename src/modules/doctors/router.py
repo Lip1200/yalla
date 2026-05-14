@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from src.core.security import get_current_user
 from src.modules.doctors.schemas import (
     AccessUpdate,
     DoctorDashboard,
@@ -18,7 +19,9 @@ from src.modules.doctors.service import (
     update_patient_access,
 )
 
-router = APIRouter()
+# Secure router endpoints via global dependency evaluation
+router = APIRouter(dependencies=[Depends(get_current_user)])
+
 
 
 @router.get("/{doctor_id}/dashboard", response_model=DoctorDashboard)

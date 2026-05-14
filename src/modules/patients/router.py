@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from src.core.security import get_current_user
 from src.modules.patients.schemas import (
     Conversation,
     FeedPost,
@@ -25,7 +26,8 @@ from src.modules.patients.service import (
     update_privacy,
 )
 
-router = APIRouter()
+# Secure router endpoints via global dependency evaluation
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("/{patient_id}/profile", response_model=PatientProfile)
@@ -34,8 +36,9 @@ def read_profile(patient_id: int):
 
 
 @router.get("/{patient_id}/feed", response_model=list[FeedPost])
-def read_feed(patient_id: int):
-    return list_feed(patient_id)
+def read_feed(patient_id: int, limit: int = 20, offset: int = 0):
+    return list_feed(patient_id, limit=limit, offset=offset)
+
 
 
 @router.post("/{patient_id}/feed", response_model=FeedPost)
