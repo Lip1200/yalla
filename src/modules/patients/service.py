@@ -1,7 +1,8 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from fastapi import HTTPException, status
 
+from src.core.database import supabase_client
 from src.modules.patients.schemas import (
     AppRole,
     Challenge,
@@ -14,57 +15,10 @@ from src.modules.patients.schemas import (
     PrivacySettingsUpdate,
     Progression,
     RestaurantRecommendation,
+    SessionKind,
     SupportSession,
     SupportSessionCreate,
 )
-
-
-profiles: dict[int, PatientProfile] = {
-    101: PatientProfile(
-        id=101,
-        full_name="Karim El Mansouri",
-        role=AppRole.PATIENT,
-        privacy_level="Partage médical complet",
-        main_goal="Marcher régulièrement et stabiliser la glycémie",
-        weekly_activity_minutes=145,
-        challenge_completion_rate=64,
-    ),
-    102: PatientProfile(
-        id=102,
-        full_name="Amina Saidi",
-        role=AppRole.EXPERT_PATIENT,
-        privacy_level="Partage sélectif",
-        main_goal="Accompagner le groupe et garder une activité régulière",
-        weekly_activity_minutes=210,
-        challenge_completion_rate=88,
-    ),
-}
-
-feed_posts: list[FeedPost] = [
-    FeedPost(
-        id=1,
-        author_id=102,
-        author_name="Amina Saidi",
-        author_role=AppRole.EXPERT_PATIENT,
-        type=PostType.ACHIEVEMENT,
-        achievement_label="Marche de groupe",
-        content="Groupe marche terminé ce matin. 35 minutes à rythme doux, tout le monde a suivi.",
-        likes=18,
-        comments_count=5,
-        created_at=datetime(2026, 4, 27, 9, 30),
-    ),
-    FeedPost(
-        id=2,
-        author_id=101,
-        author_name="Karim El Mansouri",
-        author_role=AppRole.PATIENT,
-        type=PostType.POST,
-        content="J'ai remplacé le dessert sucré par un fruit aujourd'hui. Petit pas, mais je le note.",
-        likes=11,
-        comments_count=3,
-        created_at=datetime(2026, 4, 26, 18, 10),
-    ),
-]
 
 challenges: dict[int, list[Challenge]] = {
     101: [
@@ -163,48 +117,83 @@ conversations: dict[int, list[Conversation]] = {
     ],
 }
 
-sessions: list[SupportSession] = [
-    SupportSession(
-        id=1,
-        expert_patient_id=102,
-        title="Marche douce du samedi",
-        kind="group",
-        scheduled_for=datetime(2026, 5, 2, 9, 30),
-        capacity=12,
-        enrolled_count=8,
-        notes="Parcours plat, prévoir bouteille d'eau.",
-    ),
-]
-
 
 def get_profile(patient_id: int) -> PatientProfile:
-    if patient_id not in profiles:
+    response = supabase_client.table("profiles").select("*").eq("id", patient_id).execute()
+    if not response.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient introuvable.")
 
-    return profiles[patient_id]
+    return _row_to_profile(response.data[0])
 
 
 def list_feed(patient_id: int) -> list[FeedPost]:
     get_profile(patient_id)
-    return sorted(feed_posts, key=lambda post: post.created_at, reverse=True)
+    response = supabase_client.table("feed_posts").select("*").order("created_at", desc=True).execute()
+
+    posts = []
+    for row in response.data:
+        created_at_str = row["created_at"]
+        created_at_dt = (
+            datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            if created_at_str
+            else datetime.now()
+        )
+        role = AppRole.EXPERT_PATIENT if row["author_role"] == "expert_patient" else AppRole.PATIENT
+        post_type = PostType.ACHIEVEMENT if row["type"] == "achievement" else PostType.POST
+
+        posts.append(
+            FeedPost(
+                id=row["id"],
+                author_id=row["author_id"],
+                author_name=row["author_name"],
+                author_role=role,
+                type=post_type,
+                content=row["content"],
+                achievement_label=row.get("achievement_label"),
+                likes=row["likes"],
+                comments_count=row["comments_count"],
+                created_at=created_at_dt,
+            )
+        )
+    return posts
 
 
 def create_post(patient_id: int, payload: FeedPostCreate) -> FeedPost:
     profile = get_profile(patient_id)
-    post = FeedPost(
-        id=max([item.id for item in feed_posts], default=0) + 1,
-        author_id=profile.id,
-        author_name=profile.full_name,
+
+    insert_data = {
+        "author_id": profile.id,
+        "author_name": profile.full_name,
+        "author_role": profile.role.value,
+        "type": payload.type.value,
+        "content": payload.content,
+        "achievement_label": payload.achievement_label,
+        "likes": 0,
+        "comments_count": 0,
+    }
+
+    response = supabase_client.table("feed_posts").insert(insert_data).execute()
+    row = response.data[0]
+
+    created_at_str = row["created_at"]
+    created_at_dt = (
+        datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        if created_at_str
+        else datetime.now()
+    )
+
+    return FeedPost(
+        id=row["id"],
+        author_id=row["author_id"],
+        author_name=row["author_name"],
         author_role=profile.role,
         type=payload.type,
-        content=payload.content,
-        achievement_label=payload.achievement_label,
-        likes=0,
-        comments_count=0,
-        created_at=datetime.now(),
+        content=row["content"],
+        achievement_label=row.get("achievement_label"),
+        likes=row["likes"],
+        comments_count=row["comments_count"],
+        created_at=created_at_dt,
     )
-    feed_posts.append(post)
-    return post
 
 
 def get_progression(patient_id: int) -> Progression:
@@ -239,34 +228,82 @@ def get_settings(patient_id: int) -> PatientSettings:
 
 
 def update_privacy(patient_id: int, payload: PrivacySettingsUpdate) -> PatientSettings:
-    profile = get_profile(patient_id)
-    updated_profile = profile.model_copy(update={"privacy_level": payload.privacy_level})
-    profiles[patient_id] = updated_profile
+    get_profile(patient_id)
+    supabase_client.table("profiles").update({"privacy_level": payload.privacy_level}).eq("id", patient_id).execute()
     return get_settings(patient_id)
 
 
 def list_sessions(patient_id: int) -> list[SupportSession]:
     profile = get_profile(patient_id)
     _ensure_expert(profile)
-    return [session for session in sessions if session.expert_patient_id == patient_id]
+
+    response = (
+        supabase_client.table("support_sessions")
+        .select("*")
+        .eq("expert_patient_id", patient_id)
+        .order("scheduled_for", desc=False)
+        .execute()
+    )
+
+    res = []
+    for row in response.data:
+        sched_str = row["scheduled_for"]
+        sched_dt = (
+            datetime.fromisoformat(sched_str.replace("Z", "+00:00"))
+            if sched_str
+            else datetime.now()
+        )
+        kind = SessionKind.GROUP if row["kind"] == "group" else SessionKind.INDIVIDUAL
+
+        res.append(
+            SupportSession(
+                id=row["id"],
+                expert_patient_id=row["expert_patient_id"],
+                title=row["title"],
+                kind=kind,
+                scheduled_for=sched_dt,
+                capacity=row["capacity"],
+                enrolled_count=row["enrolled_count"],
+                notes=row.get("notes") or "",
+            )
+        )
+    return res
 
 
 def create_session(patient_id: int, payload: SupportSessionCreate) -> SupportSession:
     profile = get_profile(patient_id)
     _ensure_expert(profile)
 
-    session = SupportSession(
-        id=max([item.id for item in sessions], default=0) + 1,
-        expert_patient_id=patient_id,
-        title=payload.title,
-        kind=payload.kind,
-        scheduled_for=payload.scheduled_for,
-        capacity=payload.capacity,
-        enrolled_count=0,
-        notes=payload.notes,
+    insert_data = {
+        "expert_patient_id": patient_id,
+        "title": payload.title,
+        "kind": payload.kind.value,
+        "scheduled_for": payload.scheduled_for.isoformat(),
+        "capacity": payload.capacity,
+        "enrolled_count": 0,
+        "notes": payload.notes,
+    }
+
+    response = supabase_client.table("support_sessions").insert(insert_data).execute()
+    row = response.data[0]
+
+    sched_str = row["scheduled_for"]
+    sched_dt = (
+        datetime.fromisoformat(sched_str.replace("Z", "+00:00"))
+        if sched_str
+        else datetime.now()
     )
-    sessions.append(session)
-    return session
+
+    return SupportSession(
+        id=row["id"],
+        expert_patient_id=row["expert_patient_id"],
+        title=row["title"],
+        kind=payload.kind,
+        scheduled_for=sched_dt,
+        capacity=row["capacity"],
+        enrolled_count=row["enrolled_count"],
+        notes=row.get("notes") or "",
+    )
 
 
 def _ensure_expert(profile: PatientProfile) -> None:
@@ -275,3 +312,17 @@ def _ensure_expert(profile: PatientProfile) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cette fonctionnalité est réservée aux patients experts.",
         )
+
+
+def _row_to_profile(row: dict) -> PatientProfile:
+    role_str = row["role"]
+    role = AppRole.EXPERT_PATIENT if role_str == "expert_patient" else AppRole.PATIENT
+    return PatientProfile(
+        id=row["id"],
+        full_name=row["full_name"],
+        role=role,
+        privacy_level=row["privacy_level"],
+        main_goal=row["primary_goal"],
+        weekly_activity_minutes=row["weekly_activity_minutes"],
+        challenge_completion_rate=row["challenge_completion_rate"],
+    )

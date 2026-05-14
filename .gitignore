@@ -74,3 +74,12 @@ dmypy.json
 *~
 .DS_Store
 desktop.ini
+
+# Agents IA / LLMs
+.agent/
+.claude/
+.gemini/
+.cursor/
+.cursorrules
+.aider*
+
