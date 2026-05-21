@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
+from src.modules.auth.router import router as auth_router
 from src.modules.challenges.router import router as challenges_router
 from src.modules.doctors.router import router as doctors_router
 from src.modules.patients.router import router as patients_router
@@ -27,6 +28,7 @@ app.add_middleware(
 )
 
 
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(users_router, prefix="/api/users", tags=["users"])
 app.include_router(challenges_router, prefix="/api/challenges", tags=["challenges"])
 app.include_router(social_router, prefix="/api/social", tags=["social"])
