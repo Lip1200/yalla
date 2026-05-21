@@ -37,3 +37,48 @@ class FeedPost(BaseModel):
 class SupportResponse(BaseModel):
     post_id: int
     likes: int = Field(ge=0)
+
+
+class GroupCategory(StrEnum):
+    WALKING = "walking"
+    COOKING = "cooking"
+    SUPPORT = "support"
+    GENERAL = "general"
+
+
+class GroupMemberRole(StrEnum):
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    description: str = Field(default="", max_length=500)
+    category: GroupCategory = GroupCategory.GENERAL
+    creator_id: int
+
+
+class Group(BaseModel):
+    id: int
+    name: str
+    description: str
+    category: GroupCategory
+    creator_id: int
+    creator_name: str
+    member_count: int = Field(ge=0)
+    created_at: datetime
+
+
+class GroupMember(BaseModel):
+    user_id: int
+    full_name: str
+    role: GroupMemberRole
+    joined_at: datetime
+
+
+class GroupDetail(Group):
+    members: list[GroupMember]
+
+
+class GroupJoinRequest(BaseModel):
+    user_id: int
