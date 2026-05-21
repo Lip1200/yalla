@@ -1,22 +1,76 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from src.core.config import settings
+from src.core.database import supabase_client
 
-# HTTPBearer with auto_error=False allows progressive API integration without instantly blocking local MVP dev demos
 security_scheme = HTTPBearer(auto_error=False)
 
+_UNAUTHORIZED_HEADERS = {"WWW-Authenticate": "Bearer"}
 
-def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme)) -> str:
+
+class AuthIdentity(BaseModel):
+    """Represents the authenticated caller.
+
+    A real user authenticated via Supabase carries `id` (UUID) and optional
+    `email`. A service-token caller (CI, demo scripts, mobile dev) has
+    `is_service=True` and a synthetic `id`.
     """
-    Validates API authorization token against application configuration.
-    Returns authenticated identifier or role.
-    """
-    if credentials and credentials.credentials != settings.api_secret_token:
+
+    id: str
+    email: str | None = None
+    is_service: bool = False
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+) -> AuthIdentity:
+    if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Token requis.",
+            headers=_UNAUTHORIZED_HEADERS,
         )
 
-    return "authenticated_user"
+    token = credentials.credentials
+
+    if token == settings.api_secret_token:
+        return AuthIdentity(id="service", is_service=True)
+
+    try:
+        response = supabase_client.auth.get_user(token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invalide ou expiré.",
+            headers=_UNAUTHORIZED_HEADERS,
+        ) from exc
+
+    if response is None or response.user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invalide ou expiré.",
+            headers=_UNAUTHORIZED_HEADERS,
+        )
+
+    return AuthIdentity(
+        id=str(response.user.id),
+        email=getattr(response.user, "email", None),
+        is_service=False,
+    )
+
+
+def require_real_user(identity: AuthIdentity = Depends(get_current_user)) -> AuthIdentity:
+    """Dependency that rejects the service-token fallback.
+
+    Use this guard on endpoints that must be invoked by a real authenticated
+    user (e.g. self-service profile edits), where the shared service token
+    would defeat the purpose of authorization.
+    """
+    if identity.is_service:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cet endpoint requiert un utilisateur authentifié.",
+        )
+    return identity
