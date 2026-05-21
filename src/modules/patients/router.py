@@ -9,7 +9,6 @@ from src.modules.patients.schemas import (
     PatientSettings,
     PrivacySettingsUpdate,
     Progression,
-    RestaurantRecommendation,
     SupportSession,
     SupportSessionCreate,
 )
@@ -21,7 +20,6 @@ from src.modules.patients.service import (
     get_settings,
     list_conversations,
     list_feed,
-    list_restaurants,
     list_sessions,
     update_privacy,
 )
@@ -50,10 +48,6 @@ def add_feed_post(patient_id: int, payload: FeedPostCreate):
 def read_progression(patient_id: int):
     return get_progression(patient_id)
 
-
-@router.get("/{patient_id}/restaurants", response_model=list[RestaurantRecommendation])
-def read_restaurants(patient_id: int):
-    return list_restaurants(patient_id)
 
 
 @router.get("/{patient_id}/messages", response_model=list[Conversation])
