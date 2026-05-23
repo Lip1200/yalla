@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ import {
   Home,
   MessageCircle,
   Plus,
+  Search,
   Send,
   Settings,
   ShieldCheck,
@@ -36,6 +37,7 @@ import {
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 
+const YALLA_LOGO = require("./assets/yalla-logo.png");
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
 const PATIENT_ID = 101;
 const EXPERT_PATIENT_ID = 102;
@@ -43,16 +45,16 @@ const EXPERT_PATIENT_ID = 102;
 const suggestedChallenges = [
   {
     id: 201,
-    title: "10 min apres le repas",
-    description: "Marcher doucement apres le diner pendant 4 soirs.",
-    category: "Activite",
+    title: "10 min après le repas",
+    description: "Marcher doucement après le dîner pendant 4 soirs.",
+    category: "Activité",
     progress: 0,
     due_on: "2026-05-06",
   },
   {
     id: 202,
-    title: "Assiette equilibree",
-    description: "Composer 3 repas avec legumes, proteines et feculents complets.",
+    title: "Assiette équilibrée",
+    description: "Composer 3 repas avec légumes, protéines et féculents complets.",
     category: "Alimentation",
     progress: 0,
     due_on: "2026-05-08",
@@ -60,9 +62,9 @@ const suggestedChallenges = [
 ];
 
 const suggestedFriends = [
-  { id: 301, name: "Nadia Benali", detail: "Marche douce, 4 defis termines" },
+  { id: 301, name: "Nadia Benali", detail: "Marche douce, 4 défis terminés" },
   { id: 302, name: "Youssef Haddad", detail: "Cuisine maison, nouveau dans le groupe" },
-  { id: 303, name: "Sara Amrani", detail: "Objectif regularite, active cette semaine" },
+  { id: 303, name: "Sara Amrani", detail: "Objectif régularité, active cette semaine" },
 ];
 
 const extraRestaurants = [
@@ -72,7 +74,8 @@ const extraRestaurants = [
     area: "Carouge",
     diabetes_friendly_score: 91,
     best_for: "Bols complets",
-    notes: "Legumes rotis, quinoa, poisson grille et sauces a part.",
+    price_range: "15-22 CHF",
+    notes: "Légumes rôtis, quinoa, poisson grillé et sauces à part.",
   },
   {
     id: 102,
@@ -80,7 +83,8 @@ const extraRestaurants = [
     area: "Paquis",
     diabetes_friendly_score: 84,
     best_for: "Sortie de groupe",
-    notes: "Menu simple avec viandes grillees, salades et portions ajustables.",
+    price_range: "18-28 CHF",
+    notes: "Menu simple avec viandes grillées, salades et portions ajustables.",
   },
   {
     id: 103,
@@ -88,6 +92,7 @@ const extraRestaurants = [
     area: "Plainpalais",
     diabetes_friendly_score: 79,
     best_for: "Brunch controle",
+    price_range: "12-18 CHF",
     notes: "Pain complet, oeufs, yaourt nature et fruits frais sans sirops.",
   },
 ];
@@ -108,6 +113,8 @@ export default function App() {
   const [feed, setFeed] = useState([]);
   const [progression, setProgression] = useState(null);
   const [restaurants, setRestaurants] = useState([]);
+  const [restaurantSearchLoading, setRestaurantSearchLoading] = useState(false);
+  const [restaurantSearchError, setRestaurantSearchError] = useState("");
   const [messages, setMessages] = useState([]);
   const [messageThreads, setMessageThreads] = useState({});
   const [selectedConversationId, setSelectedConversationId] = useState(null);
@@ -136,12 +143,12 @@ export default function App() {
   const tabs = useMemo(() => {
     const baseTabs = [
       { id: "home", label: "Accueil", icon: Home },
-      { id: "progress", label: "Defis", icon: Target },
-      { id: "community", label: "Communaute", icon: Users },
+      { id: "progress", label: "Défis", icon: Target },
+      { id: "community", label: "Communauté", icon: Users },
       { id: "services", label: "Services", icon: Settings },
     ];
 
-    baseTabs.splice(3, 0, { id: "sessions", label: "Seances", icon: CalendarPlus });
+    baseTabs.splice(3, 0, { id: "sessions", label: "Séances", icon: CalendarPlus });
 
     return baseTabs;
   }, [isExpert]);
@@ -187,9 +194,28 @@ export default function App() {
     }
   }
 
+  const searchRestaurants = useCallback(async (query) => {
+    const trimmedQuery = query.trim();
+    setRestaurantSearchLoading(true);
+    setRestaurantSearchError("");
+
+    try {
+      const params = trimmedQuery
+        ? `?q=${encodeURIComponent(trimmedQuery)}&radius_m=5000&limit=30`
+        : "?radius_m=2500&limit=20";
+      const restaurantData = await apiGet(`/api/restaurants/recommendations${params}`);
+      const localMatches = trimmedQuery ? filterLocalRestaurants(extraRestaurants, trimmedQuery) : extraRestaurants;
+      setRestaurants(mergeRestaurants([...restaurantData, ...localMatches]));
+    } catch (error) {
+      setRestaurantSearchError("Recherche impossible pour le moment.");
+    } finally {
+      setRestaurantSearchLoading(false);
+    }
+  }, []);
+
   async function createPost() {
     if (!postContent.trim() && !postImageBase64) {
-      Alert.alert("Publication vide", "Ecris quelque chose ou ajoute une photo avant de publier.");
+      Alert.alert("Publication vide", "Écris quelque chose ou ajoute une photo avant de publier.");
       return;
     }
 
@@ -197,7 +223,7 @@ export default function App() {
       const payload = {
         type: postType,
         content: postContent.trim() || "📸 Photo partagée",
-        achievement_label: postType === "achievement" ? "Nouvelle reussite" : null,
+        achievement_label: postType === "achievement" ? "Nouvelle réussite" : null,
       };
       if (postImageBase64) {
         payload.image_base64 = `data:image/jpeg;base64,${postImageBase64}`;
@@ -236,7 +262,7 @@ export default function App() {
 
   async function createSession() {
     if (!sessionTitle.trim() || !sessionDate.trim() || !sessionCapacity.trim()) {
-      Alert.alert("Champs manquants", "Ajoutez un titre, une date et une capacite.");
+      Alert.alert("Champs manquants", "Ajoutez un titre, une date et une capacité.");
       return;
     }
 
@@ -257,7 +283,7 @@ export default function App() {
       setSessionCapacity("10");
       setSessionNotes("");
       setSessionKind("group");
-      Alert.alert("Succes", "Seance organisee avec succes !");
+      Alert.alert("Succès", "Séance organisée avec succès !");
     } catch (error) {
       Alert.alert("Erreur", "Veuillez entrer une date valide (ex: 2026-06-15T14:00:00).");
     }
@@ -277,16 +303,16 @@ export default function App() {
           return s;
         })
       );
-      Alert.alert("Succes", "Vous avez rejoint la seance !");
+      Alert.alert("Succès", "Vous avez rejoint la séance !");
     } catch (error) {
-      Alert.alert("Erreur", "Impossible de rejoindre la seance.");
+      Alert.alert("Erreur", "Impossible de rejoindre la séance.");
     }
   }
 
   async function updatePrivacy(isPrivate) {
     try {
       const nextSettings = await apiPatch(`/api/patients/${activePatientId}/settings/privacy`, {
-        privacy_level: isPrivate ? "Donnees privees" : "Partage selectif",
+        privacy_level: isPrivate ? "Données privées" : "Partage sélectif",
       });
       setSettings(nextSettings);
       setProfile(nextSettings.profile);
@@ -365,6 +391,7 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={styles.centered}>
+          <YallaLogo size={72} />
           <ActivityIndicator color="#0f766e" size="large" />
           <RNText style={styles.loadingText}>Yalla</RNText>
         </SafeAreaView>
@@ -379,13 +406,16 @@ export default function App() {
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Bonjour</Text>
-            {profile ? (
-              <Text style={styles.userName}>{profile.full_name}</Text>
-            ) : (
-              <Skeleton width={150} height={28} style={{ marginTop: 4 }} />
-            )}
+          <View style={styles.headerIdentity}>
+            <YallaLogo size={48} />
+            <View>
+              <Text style={styles.greeting}>Bonjour</Text>
+              {profile ? (
+                <Text style={styles.userName}>{profile.full_name}</Text>
+              ) : (
+                <Skeleton width={150} height={28} style={{ marginTop: 4 }} />
+              )}
+            </View>
           </View>
           <Pressable
             onPress={() => setActivePatientId(isExpert ? PATIENT_ID : EXPERT_PATIENT_ID)}
@@ -462,6 +492,9 @@ export default function App() {
           onToggleAccess={toggleAccess}
           onUpdatePrivacy={updatePrivacy}
           restaurants={restaurants}
+          restaurantSearchError={restaurantSearchError}
+          restaurantSearchLoading={restaurantSearchLoading}
+          onSearchRestaurants={searchRestaurants}
           selectedConversationId={selectedConversationId}
           serviceView={serviceView}
           setMessageDraft={setMessageDraft}
@@ -503,28 +536,28 @@ function HomeScreen({ progression, profile, setActiveTab }) {
         <Text style={styles.heroText}>{profile.main_goal}</Text>
         <View style={styles.heroStats}>
           <MiniStat label="minutes" value={profile.weekly_activity_minutes} />
-          <MiniStat label="defis" value={`${profile.challenge_completion_rate}%`} />
+          <MiniStat label="défis" value={`${profile.challenge_completion_rate}%`} />
         </View>
       </View>
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Aujourd'hui</Text>
         <Pressable onPress={() => setActiveTab("progress")}>
-          <Text style={styles.linkText}>Voir defis</Text>
+          <Text style={styles.linkText}>Voir défis</Text>
         </Pressable>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>{nextChallenge?.title ?? "Choisir un defi"}</Text>
+        <Text style={styles.cardTitle}>{nextChallenge?.title ?? "Choisir un défi"}</Text>
         <Text style={styles.cardBody}>
-          {nextChallenge?.description ?? "Rejoins un defi simple pour garder le rythme cette semaine."}
+          {nextChallenge?.description ?? "Rejoins un défi simple pour garder le rythme cette semaine."}
         </Text>
         {nextChallenge ? (
           <>
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${nextChallenge.progress}%` }]} />
             </View>
-            <Text style={styles.cardFooter}>{nextChallenge.progress}% termine</Text>
+            <Text style={styles.cardFooter}>{nextChallenge.progress}% terminé</Text>
           </>
         ) : null}
       </View>
@@ -541,16 +574,16 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression }) {
     <ScrollView contentContainerStyle={styles.listContent}>
       <View style={styles.statsRow}>
         <StatCard label="Minutes" value={progression.weekly_activity_minutes} />
-        <StatCard label="Defis" value={`${progression.challenge_completion_rate}%`} />
-        <StatCard label="Serie" value={`${progression.current_streak_days}j`} />
+        <StatCard label="Défis" value={`${progression.challenge_completion_rate}%`} />
+        <StatCard label="Série" value={`${progression.current_streak_days}j`} />
       </View>
 
-      <Text style={styles.sectionTitle}>Mes defis</Text>
+      <Text style={styles.sectionTitle}>Mes défis</Text>
       {activeChallenges.map((challenge) => (
         <ChallengeCard key={challenge.id} challenge={challenge} />
       ))}
 
-      <Text style={styles.sectionTitle}>Rejoindre un defi</Text>
+      <Text style={styles.sectionTitle}>Rejoindre un défi</Text>
       {availableSuggestions.map((challenge) => (
         <View key={challenge.id} style={styles.card}>
           <View style={styles.cardHeader}>
@@ -563,7 +596,7 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression }) {
             </Pressable>
           </View>
           <Text style={styles.cardBody}>{challenge.description}</Text>
-          <Text style={styles.cardFooter}>Echeance {formatDate(challenge.due_on)}</Text>
+          <Text style={styles.cardFooter}>Échéance {formatDate(challenge.due_on)}</Text>
         </View>
       ))}
     </ScrollView>
@@ -579,7 +612,7 @@ function ChallengeCard({ challenge }) {
       <View style={styles.progressTrack}>
         <View style={[styles.progressFill, { width: `${challenge.progress}%` }]} />
       </View>
-      <Text style={styles.cardFooter}>{challenge.progress}% · echeance {formatDate(challenge.due_on)}</Text>
+      <Text style={styles.cardFooter}>{challenge.progress}% · échéance {formatDate(challenge.due_on)}</Text>
     </View>
   );
 }
@@ -630,7 +663,7 @@ function CommunityScreen({
               </View>
             ))}
           </ScrollView>
-          <Text style={styles.sectionTitle}>Fil d'activite</Text>
+          <Text style={styles.sectionTitle}>Fil d'activité</Text>
         </View>
       }
       contentContainerStyle={styles.listContent}
@@ -663,7 +696,7 @@ function Composer({ onCreatePost, postContent, postType, setPostContent, setPost
           onPress={() => setPostType("achievement")}
           style={[styles.segment, postType === "achievement" && styles.segmentActive]}
         >
-          <Text style={[styles.segmentText, postType === "achievement" && styles.segmentTextActive]}>Reussite</Text>
+          <Text style={[styles.segmentText, postType === "achievement" && styles.segmentTextActive]}>Réussite</Text>
         </Pressable>
       </View>
       <TextInput
@@ -749,9 +782,12 @@ function ServicesScreen({
   messageThreads,
   messages,
   onSendMessage,
+  onSearchRestaurants,
   onToggleAccess,
   onUpdatePrivacy,
   restaurants,
+  restaurantSearchError,
+  restaurantSearchLoading,
   selectedConversationId,
   serviceView,
   setMessageDraft,
@@ -764,7 +800,7 @@ function ServicesScreen({
       <View style={styles.serviceTabs}>
         <ServiceTab Icon={MessageCircle} active={serviceView === "messages"} id="messages" label="Messages" setServiceView={setServiceView} />
         <ServiceTab Icon={ChefHat} active={serviceView === "restaurants"} id="restaurants" label="Restos" setServiceView={setServiceView} />
-        <ServiceTab Icon={ShieldCheck} active={serviceView === "access"} id="access" label="Acces" setServiceView={setServiceView} />
+        <ServiceTab Icon={ShieldCheck} active={serviceView === "access"} id="access" label="Accès" setServiceView={setServiceView} />
       </View>
       {serviceView === "messages" ? (
         <MessagesScreen
@@ -777,7 +813,14 @@ function ServicesScreen({
           setSelectedConversationId={setSelectedConversationId}
         />
       ) : null}
-      {serviceView === "restaurants" ? <RestaurantsScreen restaurants={restaurants} /> : null}
+      {serviceView === "restaurants" ? (
+        <RestaurantsScreen
+          onSearchRestaurants={onSearchRestaurants}
+          restaurants={restaurants}
+          restaurantSearchError={restaurantSearchError}
+          restaurantSearchLoading={restaurantSearchLoading}
+        />
+      ) : null}
       {serviceView === "access" ? (
         <AccessScreen
           accessSettings={accessSettings}
@@ -799,12 +842,45 @@ function ServiceTab({ Icon, active, id, label, setServiceView }) {
   );
 }
 
-function RestaurantsScreen({ restaurants }) {
+function RestaurantsScreen({ onSearchRestaurants, restaurants, restaurantSearchError, restaurantSearchLoading }) {
+  const [restaurantSearch, setRestaurantSearch] = useState("");
+  const emptyRestaurantText = restaurantSearchLoading
+    ? "Recherche en cours..."
+    : "Aucun restaurant ne correspond à cette recherche.";
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      onSearchRestaurants(restaurantSearch);
+    }, 450);
+    return () => clearTimeout(timeout);
+  }, [restaurantSearch, onSearchRestaurants]);
+
   return (
     <FlatList
       contentContainerStyle={styles.innerListContent}
       data={restaurants}
-      keyExtractor={(item) => String(item.id)}
+      keyExtractor={(item) => String(item.thefork_restaurant_id ?? item.id)}
+      ListHeaderComponent={
+        <>
+          <View style={styles.searchInputWrap}>
+            <Search size={17} color="#64748b" />
+            <TextInput
+              onChangeText={setRestaurantSearch}
+              placeholder="Rechercher un restaurant ou une cuisine"
+              placeholderTextColor="#94a3b8"
+              style={styles.searchInput}
+              value={restaurantSearch}
+            />
+            {restaurantSearchLoading ? <ActivityIndicator color="#0f766e" size="small" /> : null}
+          </View>
+          {restaurantSearchError ? <Text style={styles.errorInline}>{restaurantSearchError}</Text> : null}
+          <Text style={styles.scoreLegend}>
+            Score basé sur la cuisine, les options légumes/protéines, les tags végétariens et les points à limiter
+            comme friture, fast-food ou desserts.
+          </Text>
+        </>
+      }
+      ListEmptyComponent={<Text style={styles.emptySearchText}>{emptyRestaurantText}</Text>}
       renderItem={({ item }) => (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -814,7 +890,10 @@ function RestaurantsScreen({ restaurants }) {
             </View>
             <Text style={styles.scoreBadge}>{item.diabetes_friendly_score}</Text>
           </View>
-          <Text style={styles.achievementLabel}>{item.best_for}</Text>
+          <View style={styles.restaurantMetaRow}>
+            <Text style={styles.achievementLabel}>{item.best_for}</Text>
+            {item.price_range ? <Text style={styles.priceBadge}>{item.price_range}</Text> : null}
+          </View>
           <Text style={styles.cardBody}>{item.notes}</Text>
         </View>
       )}
@@ -867,7 +946,7 @@ function MessagesScreen({
       <View style={styles.messageComposer}>
         <TextInput
           onChangeText={setMessageDraft}
-          placeholder="Ecrire un message..."
+          placeholder="Écrire un message..."
           placeholderTextColor="#94a3b8"
           style={styles.messageInput}
           value={messageDraft}
@@ -881,43 +960,43 @@ function MessagesScreen({
 }
 
 function AccessScreen({ accessSettings, onToggleAccess, onUpdatePrivacy, settings }) {
-  const isPrivate = settings.profile.privacy_level === "Donnees privees";
+  const isPrivate = settings.profile.privacy_level === "Données privées";
 
   return (
     <ScrollView contentContainerStyle={styles.innerListContent}>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Confidentialite</Text>
-        <Text style={styles.cardBody}>Choisis exactement ce que tu partages avec le medecin et le patient expert.</Text>
+        <Text style={styles.cardTitle}>Confidentialité</Text>
+        <Text style={styles.cardBody}>Choisis exactement ce que tu partages avec le médecin et le patient expert.</Text>
         <View style={styles.settingRow}>
           <View style={styles.settingText}>
-            <Text style={styles.settingTitle}>Mode prive global</Text>
-            <Text style={styles.cardMeta}>Desactive les partages principaux sans supprimer les choix fins.</Text>
+            <Text style={styles.settingTitle}>Mode privé global</Text>
+            <Text style={styles.cardMeta}>Désactive les partages principaux sans supprimer les choix fins.</Text>
           </View>
           <Switch value={isPrivate} onValueChange={onUpdatePrivacy} thumbColor={isPrivate ? "#0f766e" : "#f8fafc"} />
         </View>
       </View>
 
       <AccessToggle
-        description="Minutes d'activite, serie et progression generale."
-        label="Activite physique"
+        description="Minutes d'activité, série et progression générale."
+        label="Activité physique"
         onToggle={() => onToggleAccess("share_activity")}
         value={accessSettings.share_activity}
       />
       <AccessToggle
-        description="Defis rejoints, progression et badges."
-        label="Defis"
+        description="Défis rejoints, progression et badges."
+        label="Défis"
         onToggle={() => onToggleAccess("share_challenges")}
         value={accessSettings.share_challenges}
       />
       <AccessToggle
-        description="Restaurants consultes ou recommandes."
+        description="Restaurants consultés ou recommandés."
         label="Restaurants"
         onToggle={() => onToggleAccess("share_restaurants")}
         value={accessSettings.share_restaurants}
       />
       <AccessToggle
-        description="Posts, commentaires et likes dans la communaute."
-        label="Activite sociale"
+        description="Posts, commentaires et likes dans la communauté."
+        label="Activité sociale"
         onToggle={() => onToggleAccess("share_posts")}
         value={accessSettings.share_posts}
       />
@@ -961,10 +1040,10 @@ function SessionsScreen({
     <ScrollView contentContainerStyle={styles.listContent}>
       {isExpert && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Organiser une seance</Text>
+        <Text style={styles.cardTitle}>Organiser une séance</Text>
           <TextInput
             onChangeText={setSessionTitle}
-            placeholder="Titre de la seance"
+            placeholder="Titre de la séance"
             placeholderTextColor="#94a3b8"
             style={styles.input}
             value={sessionTitle}
@@ -988,7 +1067,7 @@ function SessionsScreen({
           />
           <TextInput
             onChangeText={setSessionCapacity}
-            placeholder="Capacite (ex: 10)"
+            placeholder="Capacité (ex: 10)"
             placeholderTextColor="#94a3b8"
             style={styles.input}
             keyboardType="numeric"
@@ -1003,7 +1082,7 @@ function SessionsScreen({
             value={sessionNotes}
           />
           <Pressable onPress={onCreateSession} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Creer la seance</Text>
+            <Text style={styles.primaryButtonText}>Créer la séance</Text>
           </Pressable>
         </View>
       )}
@@ -1081,6 +1160,36 @@ function buildThreads(conversations) {
   }, {});
 }
 
+function filterLocalRestaurants(restaurants, query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return restaurants;
+
+  return restaurants.filter((restaurant) =>
+    [
+      restaurant.name,
+      restaurant.area,
+      restaurant.cuisine_type,
+      restaurant.best_for,
+      restaurant.notes,
+      restaurant.price_range,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery)
+  );
+}
+
+function mergeRestaurants(restaurants) {
+  const seen = new Set();
+  return restaurants.filter((restaurant) => {
+    const key = String(restaurant.thefork_restaurant_id ?? restaurant.id ?? restaurant.name).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function apiGet(path) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -1088,7 +1197,7 @@ async function apiGet(path) {
     }
   });
   if (!response.ok) {
-    throw new Error("Impossible de charger les donnees.");
+    throw new Error("Impossible de charger les données.");
   }
   return response.json();
 }
@@ -1125,6 +1234,10 @@ async function apiPatch(path, payload) {
 
 function formatDate(value) {
   return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(value));
+}
+
+function YallaLogo({ size = 48 }) {
+  return <Image source={YALLA_LOGO} style={{ width: size, height: size, borderRadius: size / 2 }} />;
 }
 
 function Text(props) {
@@ -1269,6 +1382,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: 10,
     paddingTop: 10,
+  },
+  headerIdentity: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  searchInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#dbe5e1",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  searchInput: {
+    flex: 1,
+    color: "#13201f",
+    fontSize: 14,
+    outlineStyle: "none",
+  },
+  emptySearchText: {
+    color: "#64748b",
+    fontWeight: "700",
+    textAlign: "center",
+    paddingVertical: 22,
+  },
+  errorInline: {
+    color: "#b91c1c",
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  scoreLegend: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 12,
+  },
+  restaurantMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 4,
+  },
+  priceBadge: {
+    color: "#0f766e",
+    backgroundColor: "#e0f2ef",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: "800",
   },
   greeting: {
     color: "#64748b",

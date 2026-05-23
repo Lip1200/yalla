@@ -5,15 +5,15 @@ Application mobile React Native avec Expo pour les patients et patients experts.
 Navigation patient :
 
 - Accueil
-- Defis
-- Communaute
+- Défis
+- Communauté
 - Services
 
-Le patient expert voit un onglet supplementaire :
+Le patient expert voit un onglet supplémentaire :
 
-- Seances
+- Séances
 
-Les services regroupent les conversations, les recommandations de restaurants et la gestion fine des acces aux donnees.
+Les services regroupent les conversations, les recommandations de restaurants et la gestion fine des accès aux données.
 
 ## Lancement
 
@@ -22,7 +22,7 @@ npm install
 npm start
 ```
 
-Pour appeler le backend depuis un telephone physique, lancez l'API sur le reseau local :
+Pour appeler le backend depuis un téléphone physique, lancez l'API sur le réseau local :
 
 ```bash
 uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8001

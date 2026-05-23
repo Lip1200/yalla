@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -22,7 +23,6 @@ import {
   Search,
   Save,
   ShieldCheck,
-  Stethoscope,
   TrendingDown,
   UserCheck,
   Users,
@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import LoginScreen from "./LoginScreen";
+import YALLA_LOGO from "./assets/yalla-logo.png";
 import { API_BASE_URL, authFetch, clearSession, getSession, logout as logoutSession } from "./auth";
 
 const DOCTOR_ID = 1;
@@ -52,6 +53,15 @@ export default function App() {
   const [patientAssignments, setPatientAssignments] = useState([]);
   const [assigningChallengeId, setAssigningChallengeId] = useState(null);
   const [challengeError, setChallengeError] = useState("");
+  const [patientAccountForm, setPatientAccountForm] = useState({
+    fullName: "",
+    email: "",
+    age: "45",
+    primaryGoal: "Démarrer le suivi Yalla",
+  });
+  const [creatingPatientAccount, setCreatingPatientAccount] = useState(false);
+  const [patientAccountResult, setPatientAccountResult] = useState(null);
+  const [patientAccountError, setPatientAccountError] = useState("");
 
   async function handleLogout() {
     try {
@@ -111,6 +121,7 @@ export default function App() {
     () => patients.filter((patient) => patient.progress.status === "À revoir"),
     [patients],
   );
+  const displayedDoctor = useMemo(() => buildDisplayedDoctor(session, dashboard?.doctor), [session, dashboard]);
 
   async function loadDashboard() {
     setLoading(true);
@@ -150,6 +161,48 @@ export default function App() {
       setError(requestError.message);
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function createPatientAccount() {
+    setPatientAccountError("");
+    setPatientAccountResult(null);
+
+    if (!patientAccountForm.email.trim() || !patientAccountForm.fullName.trim()) {
+      setPatientAccountError("Nom complet et email patient sont requis.");
+      return;
+    }
+
+    setCreatingPatientAccount(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/accounts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: patientAccountForm.email.trim(),
+          full_name: patientAccountForm.fullName.trim(),
+          age: Number(patientAccountForm.age) || 45,
+          primary_goal: patientAccountForm.primaryGoal.trim() || "Démarrer le suivi Yalla",
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.detail ?? "Impossible de créer le compte patient.");
+      }
+
+      setPatientAccountResult(body);
+      setPatientAccountForm({
+        fullName: "",
+        email: "",
+        age: "45",
+        primaryGoal: "Démarrer le suivi Yalla",
+      });
+      await loadDashboard();
+      setSelectedPatientId(body.patient.id);
+    } catch (requestError) {
+      setPatientAccountError(requestError.message);
+    } finally {
+      setCreatingPatientAccount(false);
     }
   }
 
@@ -348,9 +401,7 @@ export default function App() {
     <View style={styles.appShell}>
       <View style={[styles.sidebar, isCompact && styles.sidebarCompact]}>
         <View style={styles.brandBlock}>
-          <View style={styles.logoMark}>
-            <Stethoscope size={22} color="#f8fafc" />
-          </View>
+          <YallaLogo size={46} />
           <View>
             <Text style={styles.brandName}>Yalla</Text>
             <Text style={styles.brandMeta}>Espace médecin</Text>
@@ -358,9 +409,9 @@ export default function App() {
         </View>
 
         <View style={styles.doctorBlock}>
-          <Text style={styles.doctorName}>{dashboard.doctor.full_name}</Text>
-          <Text style={styles.doctorMeta}>{dashboard.doctor.specialty}</Text>
-          <Text style={styles.doctorFacility}>{dashboard.doctor.facility}</Text>
+          <Text style={styles.doctorName}>{displayedDoctor.full_name}</Text>
+          <Text style={styles.doctorMeta}>{displayedDoctor.specialty}</Text>
+          <Text style={styles.doctorFacility}>{displayedDoctor.facility}</Text>
           {session?.user?.email ? (
             <Text style={styles.sessionEmail}>Connecté : {session.user.email}</Text>
           ) : null}
@@ -391,6 +442,15 @@ export default function App() {
           <Metric icon={UserCheck} label="Patients experts" value={dashboard.expert_patients} />
           <Metric icon={ClipboardList} label="À revoir" value={dashboard.patients_to_review} accent />
         </View>
+
+        <PatientAccountCreator
+          creating={creatingPatientAccount}
+          error={patientAccountError}
+          form={patientAccountForm}
+          onChange={setPatientAccountForm}
+          onCreate={createPatientAccount}
+          result={patientAccountResult}
+        />
 
         <View style={[styles.workspace, isCompact && styles.workspaceCompact]}>
           <View style={styles.patientList}>
@@ -502,6 +562,101 @@ function PatientSearchFilters({ activeFilter, onFilterChange, onSearchChange, re
       <Text style={styles.searchCount}>{resultCount} résultat{resultCount > 1 ? "s" : ""}</Text>
     </View>
   );
+}
+
+function PatientAccountCreator({ creating, error, form, onChange, onCreate, result }) {
+  const updateField = (field, value) => onChange((current) => ({ ...current, [field]: value }));
+
+  return (
+    <View style={styles.accountPanel}>
+      <View style={styles.accountPanelHeader}>
+        <View>
+          <Text style={styles.sectionTitleCompact}>Créer un compte patient</Text>
+          <Text style={styles.accountPanelText}>
+            Le patient recevra une invitation Supabase si l'envoi d'emails est activé. Les identifiants temporaires sont affichés ici pour le suivi.
+          </Text>
+        </View>
+        <Pressable style={styles.accountCreateButton} onPress={onCreate} disabled={creating}>
+          {creating ? <ActivityIndicator color="#ffffff" /> : <UserCheck size={17} color="#ffffff" />}
+          <Text style={styles.accountCreateButtonText}>{creating ? "Création..." : "Créer"}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.accountFormGrid}>
+        <View style={styles.accountField}>
+          <Text style={styles.accountLabel}>Nom complet</Text>
+          <TextInput
+            onChangeText={(value) => updateField("fullName", value)}
+            placeholder="Karim El Mansouri"
+            placeholderTextColor="#94a3b8"
+            style={styles.accountInput}
+            value={form.fullName}
+          />
+        </View>
+        <View style={styles.accountField}>
+          <Text style={styles.accountLabel}>Email patient</Text>
+          <TextInput
+            autoCapitalize="none"
+            keyboardType="email-address"
+            onChangeText={(value) => updateField("email", value)}
+            placeholder="patient@email.com"
+            placeholderTextColor="#94a3b8"
+            style={styles.accountInput}
+            value={form.email}
+          />
+        </View>
+        <View style={styles.accountFieldSmall}>
+          <Text style={styles.accountLabel}>Âge</Text>
+          <TextInput
+            keyboardType="numeric"
+            onChangeText={(value) => updateField("age", value)}
+            placeholder="45"
+            placeholderTextColor="#94a3b8"
+            style={styles.accountInput}
+            value={form.age}
+          />
+        </View>
+        <View style={styles.accountFieldWide}>
+          <Text style={styles.accountLabel}>Objectif principal</Text>
+          <TextInput
+            onChangeText={(value) => updateField("primaryGoal", value)}
+            placeholder="Stabiliser la glycémie avec une marche quotidienne"
+            placeholderTextColor="#94a3b8"
+            style={styles.accountInput}
+            value={form.primaryGoal}
+          />
+        </View>
+      </View>
+
+      {error ? <Text style={styles.accountError}>{error}</Text> : null}
+      {result ? (
+        <View style={styles.accountResult}>
+          <Text style={styles.accountResultTitle}>Compte créé pour {result.patient.full_name}</Text>
+          <Text style={styles.accountResultText}>Login : {result.email}</Text>
+          <Text style={styles.accountResultText}>Mot de passe temporaire : {result.temporary_password}</Text>
+          <Text style={styles.accountResultText}>{result.email_status}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function buildDisplayedDoctor(session, fallbackDoctor) {
+  const user = session?.user ?? {};
+  const emailName = user.email ? user.email.split("@")[0].replace(/[._-]+/g, " ") : "";
+  const formattedEmailName = emailName
+    ? `Dr. ${emailName.replace(/\b\w/g, (letter) => letter.toUpperCase())}`
+    : null;
+
+  return {
+    full_name: user.full_name || formattedEmailName || fallbackDoctor?.full_name || "Médecin connecté",
+    specialty: user.specialty || (user.email ? "Spécialité non renseignée" : fallbackDoctor?.specialty) || "Spécialité non renseignée",
+    facility: user.facility || (user.email ? "Établissement non renseigné" : fallbackDoctor?.facility) || "Établissement non renseigné",
+  };
+}
+
+function YallaLogo({ size = 46 }) {
+  return <Image source={YALLA_LOGO} style={{ width: size, height: size, borderRadius: size / 2 }} />;
 }
 
 function Metric({ icon: Icon, label, value, accent = false }) {
@@ -1006,14 +1161,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  logoMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0f766e",
-  },
   brandName: {
     color: "#f8fafc",
     fontSize: 22,
@@ -1196,6 +1343,99 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontSize: 12,
     fontWeight: "700",
+  },
+  accountPanel: {
+    borderWidth: 1,
+    borderColor: "#d9e2e1",
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    padding: 16,
+    gap: 14,
+  },
+  accountPanelHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+  sectionTitleCompact: {
+    color: "#13201f",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  accountPanelText: {
+    color: "#64748b",
+    marginTop: 5,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  accountCreateButton: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 8,
+    backgroundColor: "#0f766e",
+    paddingHorizontal: 14,
+  },
+  accountCreateButtonText: {
+    color: "#ffffff",
+    fontWeight: "800",
+  },
+  accountFormGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  accountField: {
+    flex: 1,
+    minWidth: 220,
+  },
+  accountFieldSmall: {
+    width: 96,
+  },
+  accountFieldWide: {
+    flex: 2,
+    minWidth: 260,
+  },
+  accountLabel: {
+    color: "#334155",
+    marginBottom: 6,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  accountInput: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    color: "#13201f",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 12,
+    fontSize: 14,
+    outlineStyle: "none",
+  },
+  accountError: {
+    color: "#b91c1c",
+    fontWeight: "700",
+  },
+  accountResult: {
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    borderRadius: 8,
+    backgroundColor: "#ecfdf5",
+    padding: 12,
+    gap: 4,
+  },
+  accountResultTitle: {
+    color: "#065f46",
+    fontWeight: "800",
+  },
+  accountResultText: {
+    color: "#047857",
+    fontSize: 13,
+    lineHeight: 18,
   },
   emptySearchText: {
     color: "#64748b",

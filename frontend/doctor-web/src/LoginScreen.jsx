@@ -1,14 +1,25 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { LogIn, ShieldCheck, UserPlus } from "lucide-react";
+import { LogIn, UserPlus } from "lucide-react";
 
 import { login, signup } from "./auth";
+import YALLA_LOGO from "./assets/yalla-logo.png";
+
+const HOSPITAL_OPTIONS = [
+  "HUG - Hôpitaux universitaires de Genève",
+  "Clinique La Colline",
+  "Clinique Générale-Beaulieu",
+  "Clinique des Grangettes",
+  "Clinique de Carouge",
+  "Centre médical de Plainpalais",
+];
 
 const styles = {
   shell: {
@@ -37,14 +48,6 @@ const styles = {
     alignItems: "center",
     gap: 12,
     marginBottom: 20,
-  },
-  brandIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#0f766e",
-    alignItems: "center",
-    justifyContent: "center",
   },
   brandName: {
     fontSize: 20,
@@ -110,6 +113,44 @@ const styles = {
     color: "#0f766e",
     fontWeight: "600",
   },
+  optionRow: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  dropdownButton: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#ffffff",
+    marginBottom: 8,
+  },
+  dropdownButtonText: {
+    color: "#0f172a",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  optionChip: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: "#ffffff",
+  },
+  optionChipActive: {
+    borderColor: "#0f766e",
+    backgroundColor: "#ecfdf5",
+  },
+  optionChipText: {
+    color: "#334155",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  optionChipTextActive: {
+    color: "#0f766e",
+  },
   errorBox: {
     backgroundColor: "#fef2f2",
     borderColor: "#fecaca",
@@ -141,6 +182,9 @@ export default function LoginScreen({ onAuthenticated }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [specialty, setSpecialty] = useState("Endocrinologie et diabétologie");
+  const [facility, setFacility] = useState(HOSPITAL_OPTIONS[0]);
+  const [facilityOpen, setFacilityOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -157,6 +201,10 @@ export default function LoginScreen({ onAuthenticated }) {
       setError("Le nom complet est requis pour l'inscription.");
       return;
     }
+    if (mode === "signup" && !facility.trim()) {
+      setError("Choisissez un établissement.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -164,7 +212,7 @@ export default function LoginScreen({ onAuthenticated }) {
         const session = await login(email.trim(), password);
         onAuthenticated(session);
       } else {
-        const result = await signup(email.trim(), password, fullName.trim());
+        const result = await signup(email.trim(), password, fullName.trim(), specialty.trim(), facility.trim());
         if (result?.access_token) {
           onAuthenticated(result);
         } else {
@@ -185,9 +233,7 @@ export default function LoginScreen({ onAuthenticated }) {
     <View style={styles.shell}>
       <View style={styles.card}>
         <View style={styles.brand}>
-          <View style={styles.brandIcon}>
-            <ShieldCheck size={22} color="#f8fafc" />
-          </View>
+          <YallaLogo />
           <View>
             <Text style={styles.brandName}>Yalla</Text>
             <Text style={styles.brandMeta}>Espace médecin</Text>
@@ -222,6 +268,41 @@ export default function LoginScreen({ onAuthenticated }) {
               placeholder="Dr. Nadia Benali"
               autoCapitalize="words"
             />
+          </>
+        ) : null}
+
+        {!isLogin ? (
+          <>
+            <Text style={styles.fieldLabel}>Spécialité</Text>
+            <TextInput
+              style={styles.input}
+              value={specialty}
+              onChangeText={setSpecialty}
+              placeholder="Endocrinologie et diabétologie"
+            />
+
+            <Text style={styles.fieldLabel}>Établissement</Text>
+            <Pressable style={styles.dropdownButton} onPress={() => setFacilityOpen((open) => !open)}>
+              <Text style={styles.dropdownButtonText}>{facility}</Text>
+            </Pressable>
+            {facilityOpen ? (
+              <View style={styles.optionRow}>
+                {HOSPITAL_OPTIONS.map((hospital) => (
+                  <Pressable
+                    key={hospital}
+                    onPress={() => {
+                      setFacility(hospital);
+                      setFacilityOpen(false);
+                    }}
+                    style={[styles.optionChip, facility === hospital && styles.optionChipActive]}
+                  >
+                    <Text style={[styles.optionChipText, facility === hospital && styles.optionChipTextActive]}>
+                      {hospital}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
           </>
         ) : null}
 
@@ -282,4 +363,8 @@ export default function LoginScreen({ onAuthenticated }) {
       </View>
     </View>
   );
+}
+
+function YallaLogo() {
+  return <Image source={YALLA_LOGO} style={{ width: 48, height: 48, borderRadius: 24 }} />;
 }

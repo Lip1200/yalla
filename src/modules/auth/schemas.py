@@ -5,6 +5,8 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     full_name: str = Field(min_length=2, max_length=120)
+    specialty: str = Field(default="", max_length=120)
+    facility: str = Field(default="", max_length=160)
 
 
 class LoginRequest(BaseModel):
@@ -20,6 +22,8 @@ class AuthUser(BaseModel):
     id: str
     email: EmailStr | None = None
     full_name: str | None = None
+    specialty: str | None = None
+    facility: str | None = None
 
 
 class AuthSession(BaseModel):

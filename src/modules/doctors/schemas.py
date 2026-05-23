@@ -2,6 +2,7 @@ from datetime import date
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
+from pydantic import EmailStr
 
 
 class UserRole(StrEnum):
@@ -77,3 +78,17 @@ class DoctorDashboard(BaseModel):
     expert_patients: int
     patients_to_review: int
     patients: list[PatientSummary]
+
+
+class PatientAccountCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=120)
+    age: int = Field(default=45, ge=0, le=120)
+    primary_goal: str = Field(default="Démarrer le suivi Yalla", max_length=180)
+
+
+class PatientAccountCreated(BaseModel):
+    patient: PatientSummary
+    email: EmailStr
+    temporary_password: str
+    email_status: str

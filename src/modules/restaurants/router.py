@@ -22,9 +22,15 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("/recommendations", response_model=list[CuratedRestaurant])
-def read_restaurants():
-    """List all curated diabetes-friendly restaurants."""
-    return list_restaurants()
+def read_restaurants(
+    lat: float = 46.2044,
+    lon: float = 6.1432,
+    radius_m: int = 2500,
+    limit: int = 20,
+    q: str | None = None,
+):
+    """List diabetes-friendly restaurants near a location."""
+    return list_restaurants(lat=lat, lon=lon, radius_m=radius_m, limit=limit, q=q)
 
 
 @router.post("/pools", response_model=PoolResponse)
