@@ -31,6 +31,8 @@ def signup(payload: SignupRequest) -> AuthSession:
             detail="Inscription échouée : utilisateur non créé.",
         )
 
+    _ensure_profile_for_auth_user(response.user, payload.full_name)
+
     if response.session is None:
         raise HTTPException(
             status_code=status.HTTP_202_ACCEPTED,
@@ -38,6 +40,55 @@ def signup(payload: SignupRequest) -> AuthSession:
         )
 
     return _session_to_schema(response.session, response.user, payload.full_name)
+
+
+def _ensure_profile_for_auth_user(user, full_name: str) -> None:
+    """Best-effort creation of a `profiles` row linked to a freshly signed-up
+    auth user. Silently no-ops if a row with this `auth_user_id` already
+    exists (idempotent for repeated signups) or if the link column is
+    missing (migration 004 not yet applied)."""
+    try:
+        existing = (
+            supabase_client.table("profiles")
+            .select("id")
+            .eq("auth_user_id", str(user.id))
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return
+
+        next_id = _next_profile_id()
+        supabase_client.table("profiles").insert(
+            {
+                "id": next_id,
+                "auth_user_id": str(user.id),
+                "full_name": full_name,
+                "role": "patient",
+                "privacy_level": "Données limitées",
+                "primary_goal": "",
+                "weekly_activity_minutes": 0,
+                "challenge_completion_rate": 0,
+                "activity_completion_rate": 0,
+                "has_app_access": True,
+            }
+        ).execute()
+    except Exception:
+        # Best-effort: never block signup on profile provisioning.
+        return
+
+
+def _next_profile_id() -> int:
+    response = (
+        supabase_client.table("profiles")
+        .select("id")
+        .order("id", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        return 1001
+    return int(response.data[0]["id"]) + 1
 
 
 def login(payload: LoginRequest) -> AuthSession:

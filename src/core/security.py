@@ -74,3 +74,25 @@ def require_real_user(identity: AuthIdentity = Depends(get_current_user)) -> Aut
             detail="Cet endpoint requiert un utilisateur authentifié.",
         )
     return identity
+
+
+def get_profile_for_identity(identity: AuthIdentity) -> dict | None:
+    """Resolve the `profiles` row linked to an authenticated Supabase user.
+
+    Returns None for service-token callers (no link possible) and for real
+    users that have no provisioned profile row yet (migration 004 not
+    applied, or signup happened before the auto-provisioning).
+    """
+    if identity.is_service:
+        return None
+    try:
+        response = (
+            supabase_client.table("profiles")
+            .select("*")
+            .eq("auth_user_id", identity.id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    return response.data[0] if response.data else None
