@@ -14,8 +14,11 @@ import {
 import {
   Activity,
   ClipboardList,
+  Target,
   Trash2,
   Eye,
+  LogOut,
+  Plus,
   Search,
   Save,
   ShieldCheck,
@@ -26,11 +29,14 @@ import {
   X,
 } from "lucide-react";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8001";
+import LoginScreen from "./LoginScreen";
+import { API_BASE_URL, authFetch, clearSession, getSession, logout as logoutSession } from "./auth";
+
 const DOCTOR_ID = 1;
 
 export default function App() {
   const { width } = useWindowDimensions();
+  const [session, setSession] = useState(() => getSession());
   const [dashboard, setDashboard] = useState(null);
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -42,6 +48,22 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [error, setError] = useState("");
+  const [challengeTemplates, setChallengeTemplates] = useState([]);
+  const [patientAssignments, setPatientAssignments] = useState([]);
+  const [assigningChallengeId, setAssigningChallengeId] = useState(null);
+  const [challengeError, setChallengeError] = useState("");
+
+  async function handleLogout() {
+    try {
+      await logoutSession();
+    } catch {
+      clearSession();
+    }
+    setSession(null);
+    setDashboard(null);
+    setSelectedPatient(null);
+    setProfilePatient(null);
+  }
 
   const isCompact = width < 920;
   const patients = dashboard?.patients ?? [];
@@ -66,8 +88,12 @@ export default function App() {
   }, [patientFilter, patientSearch, patients]);
 
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    if (session) {
+      loadDashboard();
+    } else {
+      setLoading(false);
+    }
+  }, [session]);
 
   useEffect(() => {
     if (patients.length > 0 && selectedPatientId === null) {
@@ -91,7 +117,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/dashboard`);
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/dashboard`);
       if (!response.ok) {
         throw new Error("Impossible de charger le tableau de bord médecin.");
       }
@@ -110,7 +136,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}`);
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}`);
       if (!response.ok) {
         throw new Error("Impossible de charger le dossier patient.");
       }
@@ -132,7 +158,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}`);
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}`);
       if (!response.ok) {
         throw new Error("Impossible d'ouvrir la fiche patient.");
       }
@@ -150,7 +176,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/${endpoint}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/${endpoint}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -184,7 +210,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/notes`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/notes`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -212,7 +238,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/notes/${noteIndex}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/notes/${noteIndex}`, {
         method: "DELETE",
       });
 
@@ -227,6 +253,73 @@ export default function App() {
     } catch (requestError) {
       setError(requestError.message);
     }
+  }
+
+  async function loadChallengeTemplates() {
+    try {
+      const response = await authFetch(`${API_BASE_URL}/api/challenges/?templates_only=true`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setChallengeTemplates(data);
+    } catch {
+      // Silent — templates section just stays empty if endpoint not ready
+    }
+  }
+
+  async function loadPatientAssignments(patientId) {
+    setChallengeError("");
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/api/challenges/assignments/patient/${patientId}`,
+      );
+      if (!response.ok) {
+        setPatientAssignments([]);
+        return;
+      }
+      setPatientAssignments(await response.json());
+    } catch (requestError) {
+      setChallengeError(requestError.message);
+      setPatientAssignments([]);
+    }
+  }
+
+  async function assignChallenge(patientId, challengeId) {
+    setAssigningChallengeId(challengeId);
+    setChallengeError("");
+    try {
+      const response = await authFetch(`${API_BASE_URL}/api/challenges/assignments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patient_id: patientId, challenge_id: challengeId }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail ?? "Impossible d'assigner le défi.");
+      }
+      await loadPatientAssignments(patientId);
+    } catch (requestError) {
+      setChallengeError(requestError.message);
+    } finally {
+      setAssigningChallengeId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (session && dashboard) {
+      loadChallengeTemplates();
+    }
+  }, [session, dashboard]);
+
+  useEffect(() => {
+    if (profilePatient?.id) {
+      loadPatientAssignments(profilePatient.id);
+    } else {
+      setPatientAssignments([]);
+    }
+  }, [profilePatient?.id]);
+
+  if (!session) {
+    return <LoginScreen onAuthenticated={(newSession) => setSession(newSession)} />;
   }
 
   if (loading) {
@@ -268,6 +361,13 @@ export default function App() {
           <Text style={styles.doctorName}>{dashboard.doctor.full_name}</Text>
           <Text style={styles.doctorMeta}>{dashboard.doctor.specialty}</Text>
           <Text style={styles.doctorFacility}>{dashboard.doctor.facility}</Text>
+          {session?.user?.email ? (
+            <Text style={styles.sessionEmail}>Connecté : {session.user.email}</Text>
+          ) : null}
+          <Pressable style={styles.logoutButton} onPress={handleLogout}>
+            <LogOut size={14} color="#475569" />
+            <Text style={styles.logoutButtonText}>Se déconnecter</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -356,6 +456,11 @@ export default function App() {
         visible={Boolean(profilePatient)}
         onClose={() => setProfilePatient(null)}
         onDeleteNote={(noteIndex) => deleteDoctorNote(profilePatient.id, noteIndex)}
+        assignments={patientAssignments}
+        challengeTemplates={challengeTemplates}
+        onAssignChallenge={(challengeId) => assignChallenge(profilePatient.id, challengeId)}
+        assigningChallengeId={assigningChallengeId}
+        challengeError={challengeError}
       />
     </View>
   );
@@ -537,11 +642,23 @@ function PatientDetail({
   );
 }
 
-function PatientProfileModal({ patient, visible, onClose, onDeleteNote }) {
+function PatientProfileModal({
+  patient,
+  visible,
+  onClose,
+  onDeleteNote,
+  assignments = [],
+  challengeTemplates = [],
+  onAssignChallenge,
+  assigningChallengeId,
+  challengeError,
+}) {
   if (!patient) {
     return null;
   }
   const isPrivate = patient.privacy_level === "Données privées";
+  const assignedIds = new Set(assignments.map((a) => a.challenge_id));
+  const availableTemplates = challengeTemplates.filter((tpl) => !assignedIds.has(tpl.id));
 
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
@@ -585,6 +702,45 @@ function PatientProfileModal({ patient, visible, onClose, onDeleteNote }) {
               <Text style={styles.emptyText}>Aucune note médecin enregistrée.</Text>
             )}
 
+            <Text style={styles.sectionTitle}>Défis assignés</Text>
+            {challengeError ? (
+              <Text style={[styles.emptyText, { color: "#b91c1c" }]}>{challengeError}</Text>
+            ) : null}
+            {assignments.length > 0 ? (
+              assignments.map((assignment) => (
+                <AssignmentRow key={assignment.id} assignment={assignment} />
+              ))
+            ) : (
+              <Text style={styles.emptyText}>Aucun défi assigné à ce patient.</Text>
+            )}
+
+            {availableTemplates.length > 0 ? (
+              <>
+                <Text style={styles.sectionTitle}>Assigner un nouveau défi</Text>
+                {availableTemplates.map((template) => (
+                  <Pressable
+                    key={template.id}
+                    style={styles.assignButton}
+                    onPress={() => onAssignChallenge?.(template.id)}
+                    disabled={assigningChallengeId === template.id}
+                  >
+                    <Target size={16} color="#0f766e" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.assignButtonTitle}>{template.title}</Text>
+                      <Text style={styles.assignButtonMeta}>
+                        {template.category} • {template.target_value} {template.target_unit} • {template.duration_days}j • {template.difficulty}
+                      </Text>
+                    </View>
+                    {assigningChallengeId === template.id ? (
+                      <ActivityIndicator color="#0f766e" />
+                    ) : (
+                      <Plus size={16} color="#0f766e" />
+                    )}
+                  </Pressable>
+                ))}
+              </>
+            ) : null}
+
             <Text style={styles.sectionTitle}>Notes de suivi</Text>
             {patient.care_notes.map((note) => (
               <Text key={note} style={styles.listItem}>
@@ -620,6 +776,34 @@ function NoteItem({ note, onDelete }) {
       <Pressable accessibilityLabel="Effacer la note" onPress={onDelete} style={styles.deleteNoteButton}>
         <Trash2 size={16} color="#991b1b" />
       </Pressable>
+    </View>
+  );
+}
+
+function AssignmentRow({ assignment }) {
+  const challenge = assignment.challenge;
+  const statusColor =
+    assignment.status === "completed"
+      ? "#047857"
+      : assignment.status === "abandoned"
+        ? "#b91c1c"
+        : "#0f766e";
+  return (
+    <View style={styles.assignmentRow}>
+      <View style={styles.assignmentHeader}>
+        <Text style={styles.assignmentTitle}>{challenge.title}</Text>
+        <Text style={[styles.assignmentStatus, { color: statusColor }]}>
+          {assignment.status}
+        </Text>
+      </View>
+      <Text style={styles.assignmentMeta}>
+        {challenge.category} • {assignment.current_value}/{challenge.target_value} {challenge.target_unit}
+        {" "}• échéance {formatDate(assignment.due_on)}
+      </Text>
+      <View style={styles.assignmentBar}>
+        <View style={[styles.assignmentBarFill, { width: `${assignment.progress}%` }]} />
+      </View>
+      <Text style={styles.assignmentProgressText}>{assignment.progress}%</Text>
     </View>
   );
 }
@@ -1547,5 +1731,92 @@ const styles = StyleSheet.create({
     marginTop: 8,
     maxWidth: 420,
     textAlign: "center",
+  },
+  sessionEmail: {
+    marginTop: 12,
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  logoutButton: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#e2e8f0",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  logoutButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  assignmentRow: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 10,
+    gap: 6,
+  },
+  assignmentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  assignmentTitle: {
+    fontWeight: "700",
+    color: "#0f172a",
+    fontSize: 14,
+    flex: 1,
+  },
+  assignmentStatus: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  assignmentMeta: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  assignmentBar: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#e2e8f0",
+    overflow: "hidden",
+    marginTop: 4,
+  },
+  assignmentBarFill: {
+    height: "100%",
+    backgroundColor: "#0f766e",
+  },
+  assignmentProgressText: {
+    fontSize: 11,
+    color: "#475569",
+    fontWeight: "600",
+    alignSelf: "flex-end",
+  },
+  assignButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#ecfdf5",
+    borderColor: "#bbf7d0",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+  },
+  assignButtonTitle: {
+    fontWeight: "700",
+    color: "#065f46",
+    fontSize: 14,
+  },
+  assignButtonMeta: {
+    fontSize: 12,
+    color: "#047857",
+    marginTop: 2,
   },
 });
