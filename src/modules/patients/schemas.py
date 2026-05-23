@@ -33,6 +33,7 @@ class FeedPostCreate(BaseModel):
     type: PostType = PostType.POST
     content: str = Field(min_length=2, max_length=500)
     achievement_label: str | None = Field(default=None, max_length=80)
+    image_base64: str | None = None
 
 
 class FeedPost(BaseModel):
@@ -42,6 +43,7 @@ class FeedPost(BaseModel):
     author_role: AppRole
     type: PostType
     content: str
+    image_url: str | None = None
     achievement_label: str | None = None
     likes: int = Field(ge=0)
     comments_count: int = Field(ge=0)

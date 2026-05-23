@@ -1,3 +1,5 @@
+import base64
+import uuid
 from datetime import date, datetime
 
 from fastapi import HTTPException, status
@@ -122,6 +124,14 @@ def list_feed(patient_id: int, limit: int = 20, offset: int = 0) -> list[FeedPos
         role = AppRole.EXPERT_PATIENT if row["author_role"] == "expert_patient" else AppRole.PATIENT
         post_type = PostType.ACHIEVEMENT if row["type"] == "achievement" else PostType.POST
 
+        content = row["content"]
+        image_url = row.get("image_url")
+        # Fallback intelligent si la colonne image_url n'existe pas en BDD
+        if not image_url and content and " ||image||" in content:
+            parts = content.split(" ||image||", 1)
+            content = parts[0]
+            image_url = parts[1]
+
         posts.append(
             FeedPost(
                 id=row["id"],
@@ -129,7 +139,8 @@ def list_feed(patient_id: int, limit: int = 20, offset: int = 0) -> list[FeedPos
                 author_name=row["author_name"],
                 author_role=role,
                 type=post_type,
-                content=row["content"],
+                content=content,
+                image_url=image_url,
                 achievement_label=row.get("achievement_label"),
                 likes=row["likes"],
                 comments_count=row["comments_count"],
@@ -153,9 +164,26 @@ def create_post(patient_id: int, payload: FeedPostCreate) -> FeedPost:
         "comments_count": 0,
     }
 
-    response = supabase_client.table("feed_posts").insert(insert_data).execute()
-    row = response.data[0]
+    image_url = None
+    if payload.image_base64:
+        insert_data["image_url"] = payload.image_base64
+        image_url = payload.image_base64
 
+    try:
+        response = supabase_client.table("feed_posts").insert(insert_data).execute()
+    except Exception as e:
+        err_msg = str(e)
+        if "image_url" in err_msg or "PGRST204" in err_msg:
+            # Fallback intelligent sans modification de BDD : on stocke l'image dans le champ content
+            if payload.image_base64:
+                insert_data["content"] = f"{payload.content} ||image||{payload.image_base64}"
+            if "image_url" in insert_data:
+                del insert_data["image_url"]
+            response = supabase_client.table("feed_posts").insert(insert_data).execute()
+        else:
+            raise e
+
+    row = response.data[0]
     created_at_str = row["created_at"]
     created_at_dt = (
         datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
@@ -163,13 +191,24 @@ def create_post(patient_id: int, payload: FeedPostCreate) -> FeedPost:
         else datetime.now()
     )
 
+    resp_content = row["content"]
+    resp_image_url = row.get("image_url")
+    if not resp_image_url and resp_content and " ||image||" in resp_content:
+        parts = resp_content.split(" ||image||", 1)
+        resp_content = parts[0]
+        resp_image_url = parts[1]
+
+    role = AppRole.EXPERT_PATIENT if row["author_role"] == "expert_patient" else AppRole.PATIENT
+    post_type = PostType.ACHIEVEMENT if row["type"] == "achievement" else PostType.POST
+
     return FeedPost(
         id=row["id"],
         author_id=row["author_id"],
         author_name=row["author_name"],
-        author_role=profile.role,
-        type=payload.type,
-        content=row["content"],
+        author_role=role,
+        type=post_type,
+        content=resp_content,
+        image_url=resp_image_url,
         achievement_label=row.get("achievement_label"),
         likes=row["likes"],
         comments_count=row["comments_count"],

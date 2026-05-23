@@ -10,11 +10,13 @@ import {
   Text,
   TextInput,
   View,
+  Image,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   CalendarPlus,
+  Camera,
   ChefHat,
   Heart,
   Home,
@@ -27,7 +29,9 @@ import {
   Trophy,
   UserPlus,
   Users,
+  X,
 } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
 const PATIENT_ID = 101;
@@ -103,6 +107,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [postContent, setPostContent] = useState("");
   const [postType, setPostType] = useState("post");
+  const [postImageUri, setPostImageUri] = useState(null);
+  const [postImageBase64, setPostImageBase64] = useState(null);
   const [likedPosts, setLikedPosts] = useState(new Set());
   const [commentInputs, setCommentInputs] = useState({});
   const [commentsByPost, setCommentsByPost] = useState({});
@@ -171,24 +177,50 @@ export default function App() {
   }
 
   async function createPost() {
-    if (!postContent.trim()) {
-      Alert.alert("Publication vide", "Ecris quelque chose avant de publier.");
+    if (!postContent.trim() && !postImageBase64) {
+      Alert.alert("Publication vide", "Ecris quelque chose ou ajoute une photo avant de publier.");
       return;
     }
 
     try {
-      const createdPost = await apiPost(`/api/patients/${activePatientId}/feed`, {
+      const payload = {
         type: postType,
-        content: postContent.trim(),
+        content: postContent.trim() || "📸 Photo partagée",
         achievement_label: postType === "achievement" ? "Nouvelle reussite" : null,
-      });
+      };
+      if (postImageBase64) {
+        payload.image_base64 = `data:image/jpeg;base64,${postImageBase64}`;
+      }
+
+      const createdPost = await apiPost(`/api/patients/${activePatientId}/feed`, payload);
       setFeed([createdPost, ...feed]);
       setPostContent("");
       setPostType("post");
+      setPostImageUri(null);
+      setPostImageBase64(null);
       setActiveTab("community");
     } catch (error) {
       Alert.alert("Erreur", error.message);
     }
+  }
+
+  async function pickImage() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.5,
+      base64: true,
+    });
+
+    if (!result.canceled) {
+      setPostImageUri(result.assets[0].uri);
+      setPostImageBase64(result.assets[0].base64);
+    }
+  }
+
+  function clearImage() {
+    setPostImageUri(null);
+    setPostImageBase64(null);
   }
 
   async function createSession() {
@@ -394,6 +426,9 @@ export default function App() {
           setCommentInputs={setCommentInputs}
           setPostContent={setPostContent}
           setPostType={setPostType}
+          postImageUri={postImageUri}
+          onPickImage={pickImage}
+          onClearImage={clearImage}
         />
       );
     }
@@ -545,6 +580,9 @@ function CommunityScreen({
   setCommentInputs,
   setPostContent,
   setPostType,
+  postImageUri,
+  onPickImage,
+  onClearImage,
 }) {
   return (
     <FlatList
@@ -556,6 +594,9 @@ function CommunityScreen({
             postType={postType}
             setPostContent={setPostContent}
             setPostType={setPostType}
+            postImageUri={postImageUri}
+            onPickImage={onPickImage}
+            onClearImage={onClearImage}
           />
           <Text style={styles.sectionTitle}>Ajouter des amis</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
@@ -591,7 +632,7 @@ function CommunityScreen({
   );
 }
 
-function Composer({ onCreatePost, postContent, postType, setPostContent, setPostType }) {
+function Composer({ onCreatePost, postContent, postType, setPostContent, setPostType, postImageUri, onPickImage, onClearImage }) {
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>Publier</Text>
@@ -614,9 +655,22 @@ function Composer({ onCreatePost, postContent, postType, setPostContent, setPost
         style={styles.textArea}
         value={postContent}
       />
-      <Pressable onPress={onCreatePost} style={styles.primaryButton}>
-        <Text style={styles.primaryButtonText}>Publier</Text>
-      </Pressable>
+      {postImageUri && (
+        <View style={styles.imagePreviewContainer}>
+          <Image source={{ uri: postImageUri }} style={styles.imagePreview} />
+          <Pressable onPress={onClearImage} style={styles.clearImageBtn}>
+            <X size={16} color="#fff" />
+          </Pressable>
+        </View>
+      )}
+      <View style={styles.composerActions}>
+        <Pressable onPress={onPickImage} style={styles.composerIconButton}>
+          <Camera size={20} color="#0f766e" />
+        </Pressable>
+        <Pressable onPress={onCreatePost} style={[styles.primaryButton, { flex: 1, marginTop: 0, marginLeft: 12 }]}>
+          <Text style={styles.primaryButtonText}>Publier</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -637,6 +691,7 @@ function FeedCard({ commentInput, comments, isLiked, onAddComment, onChangeComme
       </View>
       {post.achievement_label ? <Text style={styles.achievementLabel}>{post.achievement_label}</Text> : null}
       <Text style={styles.cardBody}>{post.content}</Text>
+      {post.image_url ? <Image source={{ uri: post.image_url }} style={styles.feedImage} /> : null}
       <View style={styles.actionRow}>
         <Pressable onPress={onToggleLike} style={[styles.actionButton, isLiked && styles.actionButtonActive]}>
           <Heart size={17} color={isLiked ? "#be123c" : "#64748b"} fill={isLiked ? "#be123c" : "transparent"} />
@@ -1584,5 +1639,44 @@ const styles = StyleSheet.create({
   },
   tabLabelActive: {
     color: "#0f766e",
+  },
+  composerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 14,
+  },
+  composerIconButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ecfdf5",
+  },
+  imagePreviewContainer: {
+    position: "relative",
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  imagePreview: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+  },
+  clearImageBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    borderRadius: 999,
+    padding: 6,
+  },
+  feedImage: {
+    width: "100%",
+    aspectRatio: 4 / 3,
+    borderRadius: 16,
+    marginTop: 12,
   },
 });
