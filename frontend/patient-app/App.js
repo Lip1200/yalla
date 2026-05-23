@@ -1,19 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Pressable,
+  Pressable as RNPressable,
   ScrollView,
   StyleSheet,
   Switch,
-  Text,
+  Text as RNText,
   TextInput,
   View,
   Image,
+  Animated,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
+import { Inter_400Regular, Inter_500Medium } from '@expo-google-fonts/inter';
 import {
   CalendarPlus,
   Camera,
@@ -90,6 +93,14 @@ const extraRestaurants = [
 ];
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    Outfit_400Regular,
+    Outfit_600SemiBold,
+    Outfit_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+  });
+
   const [activePatientId, setActivePatientId] = useState(PATIENT_ID);
   const [activeTab, setActiveTab] = useState("home");
   const [serviceView, setServiceView] = useState("messages");
@@ -350,16 +361,18 @@ export default function App() {
     setMessageDraft("");
   }
 
-  if (loading || !profile || !progression || !settings || !accessSettings) {
+  if (!fontsLoaded) {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={styles.centered}>
           <ActivityIndicator color="#0f766e" size="large" />
-          <Text style={styles.loadingText}>Chargement de Yalla</Text>
+          <RNText style={styles.loadingText}>Yalla</RNText>
         </SafeAreaView>
       </SafeAreaProvider>
     );
   }
+
+  const isLoadingApp = loading || !profile || !progression || !settings || !accessSettings;
 
   return (
     <SafeAreaProvider>
@@ -368,7 +381,11 @@ export default function App() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Bonjour</Text>
-            <Text style={styles.userName}>{profile.full_name}</Text>
+            {profile ? (
+              <Text style={styles.userName}>{profile.full_name}</Text>
+            ) : (
+              <Skeleton width={150} height={28} style={{ marginTop: 4 }} />
+            )}
           </View>
           <Pressable
             onPress={() => setActivePatientId(isExpert ? PATIENT_ID : EXPERT_PATIENT_ID)}
@@ -378,7 +395,9 @@ export default function App() {
           </Pressable>
         </View>
 
-        <View style={styles.content}>{renderTab()}</View>
+        <View style={styles.content}>
+          {isLoadingApp ? <ScreenSkeleton activeTab={activeTab} /> : renderTab()}
+        </View>
 
         <View style={styles.tabBar}>
           {tabs.map((tab) => {
@@ -1106,6 +1125,125 @@ async function apiPatch(path, payload) {
 
 function formatDate(value) {
   return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(value));
+}
+
+function Text(props) {
+  const { style, ...otherProps } = props;
+  let fontFamily = 'Inter_400Regular';
+  
+  const flatStyle = StyleSheet.flatten(style) || {};
+  const weight = flatStyle.fontWeight;
+  
+  if (weight === '900' || weight === '800' || weight === 'bold') {
+    fontFamily = 'Outfit_700Bold';
+  } else if (weight === '700' || weight === '600') {
+    fontFamily = 'Outfit_600SemiBold';
+  } else if (weight === '500') {
+    fontFamily = 'Inter_500Medium';
+  } else if (flatStyle.fontSize && flatStyle.fontSize >= 16) {
+    fontFamily = 'Outfit_400Regular';
+  }
+
+  return <RNText style={[{ fontFamily }, style]} {...otherProps} />;
+}
+
+function Pressable({ onPress, onPressIn, onPressOut, style, children, ...props }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = (e) => {
+    Animated.spring(scale, {
+      toValue: 0.95,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 10,
+    }).start();
+    if (onPressIn) onPressIn(e);
+  };
+
+  const handlePressOut = (e) => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 10,
+    }).start();
+    if (onPressOut) onPressOut(e);
+  };
+
+  return (
+    <RNPressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={style}
+      {...props}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        {children}
+      </Animated.View>
+    </RNPressable>
+  );
+}
+
+function Skeleton({ width, height, borderRadius = 8, style }) {
+  const anim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.3, duration: 800, useNativeDriver: true })
+      ])
+    ).start();
+  }, [anim]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: '#e2e8f0',
+          opacity: anim,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function ScreenSkeleton({ activeTab }) {
+  if (activeTab === "home") {
+    return (
+      <View style={{ padding: 20, gap: 24 }}>
+        <View style={{ gap: 12 }}>
+          <Skeleton width={120} height={16} />
+          <Skeleton width="100%" height={100} borderRadius={16} />
+        </View>
+        <View style={{ gap: 12 }}>
+          <Skeleton width={150} height={20} />
+          <Skeleton width="100%" height={140} borderRadius={16} />
+        </View>
+      </View>
+    );
+  }
+  if (activeTab === "community") {
+    return (
+      <View style={{ padding: 20, gap: 16 }}>
+        <Skeleton width="100%" height={60} borderRadius={24} />
+        <Skeleton width="100%" height={250} borderRadius={16} />
+        <Skeleton width="100%" height={250} borderRadius={16} />
+      </View>
+    );
+  }
+  return (
+    <View style={{ padding: 20, gap: 16 }}>
+      <Skeleton width="100%" height={80} borderRadius={16} />
+      <Skeleton width="100%" height={80} borderRadius={16} />
+      <Skeleton width="100%" height={80} borderRadius={16} />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
