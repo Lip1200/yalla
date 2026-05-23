@@ -6,11 +6,14 @@ from src.modules.doctors.schemas import (
     DoctorDashboard,
     DoctorNoteCreate,
     ExpertRoleUpdate,
+    PatientAccountCreate,
+    PatientAccountCreated,
     PatientDetail,
     PatientSummary,
 )
 from src.modules.doctors.service import (
     add_doctor_note,
+    create_patient_account,
     delete_doctor_note,
     get_doctor_dashboard,
     get_patient,
@@ -32,6 +35,11 @@ def read_dashboard(doctor_id: int):
 @router.get("/{doctor_id}/patients", response_model=list[PatientSummary])
 def read_patients(doctor_id: int):
     return list_patients(doctor_id)
+
+
+@router.post("/{doctor_id}/patients/accounts", response_model=PatientAccountCreated, status_code=201)
+def create_patient_login(doctor_id: int, payload: PatientAccountCreate):
+    return create_patient_account(doctor_id, payload)
 
 
 @router.get("/{doctor_id}/patients/{patient_id}", response_model=PatientDetail)

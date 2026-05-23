@@ -16,7 +16,14 @@ def signup(payload: SignupRequest) -> AuthSession:
             {
                 "email": payload.email,
                 "password": payload.password,
-                "options": {"data": {"full_name": payload.full_name}},
+                "options": {
+                    "data": {
+                        "full_name": payload.full_name,
+                        "specialty": payload.specialty,
+                        "facility": payload.facility,
+                        "role": "doctor",
+                    }
+                },
             }
         )
     except Exception as exc:
@@ -116,8 +123,12 @@ def _session_to_schema(session, user, full_name_fallback: str | None = None) -> 
 def _user_to_schema(user, full_name_fallback: str | None = None) -> AuthUser:
     metadata = getattr(user, "user_metadata", None) or {}
     full_name = metadata.get("full_name") if isinstance(metadata, dict) else None
+    specialty = metadata.get("specialty") if isinstance(metadata, dict) else None
+    facility = metadata.get("facility") if isinstance(metadata, dict) else None
     return AuthUser(
         id=str(user.id),
         email=getattr(user, "email", None),
         full_name=full_name or full_name_fallback,
+        specialty=specialty,
+        facility=facility,
     )

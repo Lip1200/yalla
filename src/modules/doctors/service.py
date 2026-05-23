@@ -1,3 +1,5 @@
+import secrets
+import string
 from datetime import date
 
 from fastapi import HTTPException, status
@@ -7,6 +9,8 @@ from src.modules.doctors.schemas import (
     DoctorDashboard,
     DoctorProfile,
     HealthMetric,
+    PatientAccountCreate,
+    PatientAccountCreated,
     PatientDetail,
     PatientEvolutionPoint,
     PatientProgress,
@@ -39,6 +43,64 @@ def list_patients(doctor_id: int) -> list[PatientSummary]:
     _get_doctor(doctor_id)
     response = supabase_client.table("profiles").select("*").order("id", desc=False).execute()
     return [_to_summary(_row_to_detail(row)) for row in response.data]
+
+
+def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> PatientAccountCreated:
+    _get_doctor(doctor_id)
+    password = _generate_temporary_password()
+    email_status = "Email d'invitation Supabase envoyé si la confirmation email est activée."
+
+    try:
+        supabase_client.auth.sign_up(
+            {
+                "email": str(payload.email),
+                "password": password,
+                "options": {
+                    "data": {
+                        "full_name": payload.full_name,
+                        "role": "patient",
+                    }
+                },
+            }
+        )
+    except Exception as exc:
+        email_status = f"Compte auth non créé automatiquement : {exc}"
+
+    next_id = _next_patient_id()
+    insert_data = {
+        "id": next_id,
+        "full_name": payload.full_name.strip(),
+        "role": "patient",
+        "age": payload.age,
+        "primary_goal": payload.primary_goal.strip() or "Démarrer le suivi Yalla",
+        "has_app_access": True,
+        "privacy_level": "Partage sélectif",
+        "activity_completion_rate": 0,
+        "challenge_completion_rate": 0,
+        "weekly_activity_minutes": 0,
+        "last_check_in": date.today().isoformat(),
+        "status": "Nouveau",
+        "care_notes": [
+            f"Compte créé par le médecin. Login : {payload.email}. Mot de passe temporaire : {password}",
+        ],
+        "doctor_notes": [],
+    }
+
+    try:
+        response = supabase_client.table("profiles").insert(insert_data).execute()
+        patient_row = response.data[0] if response.data else insert_data
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Compte auth créé, mais profil patient impossible à enregistrer : {exc}",
+        ) from exc
+
+    return PatientAccountCreated(
+        patient=_to_summary(_row_to_detail(patient_row)),
+        email=payload.email,
+        temporary_password=password,
+        email_status=email_status,
+    )
 
 
 def get_patient(doctor_id: int, patient_id: int) -> PatientDetail:
@@ -133,6 +195,18 @@ def _get_doctor(doctor_id: int) -> DoctorProfile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médecin introuvable.")
 
     return doctor
+
+
+def _next_patient_id() -> int:
+    response = supabase_client.table("profiles").select("id").order("id", desc=True).limit(1).execute()
+    if not response.data:
+        return 101
+    return int(response.data[0]["id"]) + 1
+
+
+def _generate_temporary_password() -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "Yalla-" + "".join(secrets.choice(alphabet) for _ in range(10))
 
 
 def _row_to_detail(row: dict) -> PatientDetail:

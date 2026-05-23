@@ -23,6 +23,7 @@ class CuratedRestaurant(BaseModel):
     diabetes_friendly_score: int = Field(ge=0, le=100)
     best_for: str = ""
     notes: str = ""
+    price_range: str = ""
     image_url: str = ""
 
 

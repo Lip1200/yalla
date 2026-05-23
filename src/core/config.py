@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # TheFork integration — empty api_key activates mock mode for MVP demos
     thefork_api_key: str = ""
     thefork_base_url: str = "https://api.thefork.io/manager/v1"
+    overpass_api_url: str = "https://overpass-api.de/api/interpreter"
 
 
     model_config = SettingsConfigDict(
