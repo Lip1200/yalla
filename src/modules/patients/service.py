@@ -214,12 +214,10 @@ def update_privacy(patient_id: int, payload: PrivacySettingsUpdate) -> PatientSe
 
 def list_sessions(patient_id: int) -> list[SupportSession]:
     profile = get_profile(patient_id)
-    _ensure_expert(profile)
 
     response = (
         supabase_client.table("support_sessions")
         .select("*")
-        .eq("expert_patient_id", patient_id)
         .order("scheduled_for", desc=False)
         .execute()
     )
@@ -282,6 +280,46 @@ def create_session(patient_id: int, payload: SupportSessionCreate) -> SupportSes
         capacity=row["capacity"],
         enrolled_count=row["enrolled_count"],
         notes=row.get("notes") or "",
+    )
+
+
+def join_session(patient_id: int, session_id: int) -> SupportSession:
+    get_profile(patient_id)
+
+    response = supabase_client.table("support_sessions").select("*").eq("id", session_id).execute()
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Séance introuvable.")
+
+    row = response.data[0]
+    if row["enrolled_count"] >= row["capacity"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La séance est déjà complète.")
+
+    new_count = row["enrolled_count"] + 1
+    update_resp = (
+        supabase_client.table("support_sessions")
+        .update({"enrolled_count": new_count})
+        .eq("id", session_id)
+        .execute()
+    )
+
+    updated_row = update_resp.data[0]
+    sched_str = updated_row["scheduled_for"]
+    sched_dt = (
+        datetime.fromisoformat(sched_str.replace("Z", "+00:00"))
+        if sched_str
+        else datetime.now()
+    )
+    kind = SessionKind.GROUP if updated_row["kind"] == "group" else SessionKind.INDIVIDUAL
+
+    return SupportSession(
+        id=updated_row["id"],
+        expert_patient_id=updated_row["expert_patient_id"],
+        title=updated_row["title"],
+        kind=kind,
+        scheduled_for=sched_dt,
+        capacity=updated_row["capacity"],
+        enrolled_count=updated_row["enrolled_count"],
+        notes=updated_row.get("notes") or "",
     )
 
 

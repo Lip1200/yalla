@@ -109,6 +109,11 @@ export default function App() {
   const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
   const [friendIds, setFriendIds] = useState(new Set());
   const [sessionTitle, setSessionTitle] = useState("");
+  const [sessionKind, setSessionKind] = useState("group");
+  const [sessionDate, setSessionDate] = useState("");
+  const [sessionCapacity, setSessionCapacity] = useState("10");
+  const [sessionNotes, setSessionNotes] = useState("");
+  const [joinedSessions, setJoinedSessions] = useState(new Set());
 
   const isExpert = profile?.role === "expert_patient";
   const tabs = useMemo(() => {
@@ -119,9 +124,7 @@ export default function App() {
       { id: "services", label: "Services", icon: Settings },
     ];
 
-    if (isExpert) {
-      baseTabs.splice(3, 0, { id: "sessions", label: "Seances", icon: CalendarPlus });
-    }
+    baseTabs.splice(3, 0, { id: "sessions", label: "Seances", icon: CalendarPlus });
 
     return baseTabs;
   }, [isExpert]);
@@ -129,12 +132,6 @@ export default function App() {
   useEffect(() => {
     loadApp();
   }, [activePatientId]);
-
-  useEffect(() => {
-    if (!isExpert && activeTab === "sessions") {
-      setActiveTab("home");
-    }
-  }, [activeTab, isExpert]);
 
   async function loadApp() {
     setLoading(true);
@@ -144,7 +141,7 @@ export default function App() {
         apiGet(`/api/patients/${activePatientId}/profile`),
         apiGet(`/api/patients/${activePatientId}/feed`),
         apiGet(`/api/patients/${activePatientId}/progression`),
-        apiGet(`/api/patients/${activePatientId}/restaurants`),
+        apiGet("/api/restaurants/recommendations"),
         apiGet(`/api/patients/${activePatientId}/messages`),
         apiGet(`/api/patients/${activePatientId}/settings`),
       ]);
@@ -165,11 +162,7 @@ export default function App() {
         share_messages_with_expert: true,
       });
 
-      if (profileData.role === "expert_patient") {
-        setSessions(await apiGet(`/api/patients/${activePatientId}/sessions`));
-      } else {
-        setSessions([]);
-      }
+      setSessions(await apiGet(`/api/patients/${activePatientId}/sessions`));
     } catch (error) {
       Alert.alert("Erreur", error.message);
     } finally {
@@ -199,23 +192,51 @@ export default function App() {
   }
 
   async function createSession() {
-    if (!sessionTitle.trim()) {
-      Alert.alert("Titre manquant", "Ajoute un titre pour la seance.");
+    if (!sessionTitle.trim() || !sessionDate.trim() || !sessionCapacity.trim()) {
+      Alert.alert("Champs manquants", "Ajoutez un titre, une date et une capacite.");
       return;
     }
 
     try {
+      const parsedCapacity = parseInt(sessionCapacity, 10) || 10;
+      const scheduledFor = new Date(sessionDate).toISOString();
+
       const createdSession = await apiPost(`/api/patients/${activePatientId}/sessions`, {
         title: sessionTitle.trim(),
-        kind: "group",
-        scheduled_for: new Date(Date.now() + 86400000).toISOString(),
-        capacity: 10,
-        notes: "Seance creee depuis l'application patient expert.",
+        kind: sessionKind,
+        scheduled_for: scheduledFor,
+        capacity: parsedCapacity,
+        notes: sessionNotes.trim(),
       });
       setSessions([createdSession, ...sessions]);
       setSessionTitle("");
+      setSessionDate("");
+      setSessionCapacity("10");
+      setSessionNotes("");
+      setSessionKind("group");
+      Alert.alert("Succes", "Seance organisee avec succes !");
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      Alert.alert("Erreur", "Veuillez entrer une date valide (ex: 2026-06-15T14:00:00).");
+    }
+  }
+
+  async function joinSession(sessionId) {
+    if (joinedSessions.has(sessionId)) return;
+    try {
+      await apiPost(`/api/patients/${activePatientId}/sessions/${sessionId}/join`, {});
+      setJoinedSessions(new Set(joinedSessions).add(sessionId));
+      
+      setSessions(
+        sessions.map((s) => {
+          if (s.id === sessionId) {
+            return { ...s, enrolled_count: s.enrolled_count + 1 };
+          }
+          return s;
+        })
+      );
+      Alert.alert("Succes", "Vous avez rejoint la seance !");
+    } catch (error) {
+      Alert.alert("Erreur", "Impossible de rejoindre la seance.");
     }
   }
 
@@ -398,10 +419,21 @@ export default function App() {
     }
     return (
       <SessionsScreen
-        sessionTitle={sessionTitle}
         sessions={sessions}
+        sessionTitle={sessionTitle}
         setSessionTitle={setSessionTitle}
+        sessionKind={sessionKind}
+        setSessionKind={setSessionKind}
+        sessionDate={sessionDate}
+        setSessionDate={setSessionDate}
+        sessionCapacity={sessionCapacity}
+        setSessionCapacity={setSessionCapacity}
+        sessionNotes={sessionNotes}
+        setSessionNotes={setSessionNotes}
+        joinedSessions={joinedSessions}
         onCreateSession={createSession}
+        onJoinSession={joinSession}
+        isExpert={isExpert}
       />
     );
   }
@@ -839,32 +871,100 @@ function AccessToggle({ description, label, onToggle, value }) {
   );
 }
 
-function SessionsScreen({ sessions, sessionTitle, setSessionTitle, onCreateSession }) {
+function SessionsScreen({ 
+  sessions, 
+  sessionTitle, setSessionTitle, 
+  sessionKind, setSessionKind,
+  sessionDate, setSessionDate,
+  sessionCapacity, setSessionCapacity,
+  sessionNotes, setSessionNotes,
+  joinedSessions,
+  onCreateSession,
+  onJoinSession,
+  isExpert
+}) {
   return (
     <ScrollView contentContainerStyle={styles.listContent}>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Organiser une seance</Text>
-        <TextInput
-          onChangeText={setSessionTitle}
-          placeholder="Titre de la seance"
-          placeholderTextColor="#94a3b8"
-          style={styles.input}
-          value={sessionTitle}
-        />
-        <Pressable onPress={onCreateSession} style={styles.primaryButton}>
-          <Text style={styles.primaryButtonText}>Creer la seance</Text>
-        </Pressable>
-      </View>
-      {sessions.map((session) => (
-        <View key={session.id} style={styles.card}>
-          <Text style={styles.cardTitle}>{session.title}</Text>
-          <Text style={styles.cardMeta}>
-            {session.kind === "group" ? "Groupe" : "Individuel"} · {session.enrolled_count}/{session.capacity}
-          </Text>
-          <Text style={styles.cardBody}>{session.notes}</Text>
-          <Text style={styles.cardFooter}>{formatDate(session.scheduled_for)}</Text>
+      {isExpert && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Organiser une seance</Text>
+          <TextInput
+            onChangeText={setSessionTitle}
+            placeholder="Titre de la seance"
+            placeholderTextColor="#94a3b8"
+            style={styles.input}
+            value={sessionTitle}
+          />
+          <View style={[styles.settingRow, { marginTop: 10, marginBottom: 10 }]}>
+            <View style={styles.settingText}>
+              <Text style={styles.cardMeta}>{sessionKind === "group" ? "Groupe" : "Individuel"}</Text>
+            </View>
+            <Switch
+              value={sessionKind === "group"}
+              onValueChange={(val) => setSessionKind(val ? "group" : "individual")}
+              thumbColor={sessionKind === "group" ? "#0f766e" : "#f8fafc"}
+            />
+          </View>
+          <TextInput
+            onChangeText={setSessionDate}
+            placeholder="Date (ex: 2026-06-15T14:00:00)"
+            placeholderTextColor="#94a3b8"
+            style={styles.input}
+            value={sessionDate}
+          />
+          <TextInput
+            onChangeText={setSessionCapacity}
+            placeholder="Capacite (ex: 10)"
+            placeholderTextColor="#94a3b8"
+            style={styles.input}
+            keyboardType="numeric"
+            value={sessionCapacity}
+          />
+          <TextInput
+            onChangeText={setSessionNotes}
+            placeholder="Notes (optionnel)"
+            placeholderTextColor="#94a3b8"
+            style={[styles.input, { height: 60 }]}
+            multiline
+            value={sessionNotes}
+          />
+          <Pressable onPress={onCreateSession} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Creer la seance</Text>
+          </Pressable>
         </View>
-      ))}
+      )}
+
+      {sessions.map((session) => {
+        const isFull = session.enrolled_count >= session.capacity;
+        const hasJoined = joinedSessions.has(session.id);
+
+        return (
+          <View key={session.id} style={styles.card}>
+            <Text style={styles.cardTitle}>{session.title}</Text>
+            <Text style={styles.cardMeta}>
+              {session.kind === "group" ? "Groupe" : "Individuel"} · {session.enrolled_count}/{session.capacity} places
+            </Text>
+            <Text style={styles.cardBody}>{session.notes}</Text>
+            <Text style={styles.cardFooter}>{formatDate(session.scheduled_for)}</Text>
+
+            {!isExpert && (
+              <Pressable 
+                onPress={() => onJoinSession(session.id)} 
+                style={[
+                  styles.primaryButton, 
+                  { marginTop: 12 }, 
+                  (hasJoined || isFull) && { backgroundColor: "#94a3b8" }
+                ]}
+                disabled={hasJoined || isFull}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {hasJoined ? "Inscrit" : isFull ? "Complet" : "Rejoindre"}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -908,7 +1008,11 @@ function buildThreads(conversations) {
 }
 
 async function apiGet(path) {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      "Authorization": "Bearer yalla-secret-token"
+    }
+  });
   if (!response.ok) {
     throw new Error("Impossible de charger les donnees.");
   }
@@ -918,7 +1022,10 @@ async function apiGet(path) {
 async function apiPost(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": "Bearer yalla-secret-token"
+    },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -930,7 +1037,10 @@ async function apiPost(path, payload) {
 async function apiPatch(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": "Bearer yalla-secret-token"
+    },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {

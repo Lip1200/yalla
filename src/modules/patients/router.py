@@ -22,6 +22,7 @@ from src.modules.patients.service import (
     list_feed,
     list_sessions,
     update_privacy,
+    join_session,
 )
 
 # Secure router endpoints via global dependency evaluation
@@ -73,3 +74,8 @@ def read_sessions(patient_id: int):
 @router.post("/{patient_id}/sessions", response_model=SupportSession)
 def add_session(patient_id: int, payload: SupportSessionCreate):
     return create_session(patient_id, payload)
+
+
+@router.post("/{patient_id}/sessions/{session_id}/join", response_model=SupportSession)
+def join_support_session(patient_id: int, session_id: int):
+    return join_session(patient_id, session_id)
