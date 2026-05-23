@@ -7,12 +7,20 @@ from src.modules.social.schemas import (
     AppRole,
     FeedPost,
     FeedPostCreate,
+    Group,
+    GroupCategory,
+    GroupCreate,
+    GroupDetail,
+    GroupMember,
+    GroupMemberRole,
     PostType,
     SupportResponse,
 )
 
 FEED_TABLE = "feed_posts"
 PROFILES_TABLE = "profiles"
+GROUPS_TABLE = "groups"
+GROUP_MEMBERS_TABLE = "group_members"
 
 
 def list_feed(limit: int = 20, offset: int = 0) -> list[FeedPost]:
@@ -129,5 +137,190 @@ def _row_to_post(row: dict) -> FeedPost:
         achievement_label=row.get("achievement_label"),
         likes=row.get("likes") or 0,
         comments_count=row.get("comments_count") or 0,
+        created_at=created_at,
+    )
+
+
+def list_groups(category: GroupCategory | None = None) -> list[Group]:
+    query = supabase_client.table(GROUPS_TABLE).select("*").order("created_at", desc=True)
+    if category is not None:
+        query = query.eq("category", category.value)
+    response = query.execute()
+    return [_row_to_group(row) for row in response.data]
+
+
+def create_group(payload: GroupCreate) -> Group:
+    creator = _get_profile_or_404(payload.creator_id)
+    insert_data = {
+        "name": payload.name,
+        "description": payload.description,
+        "category": payload.category.value,
+        "creator_id": creator["id"],
+    }
+    response = supabase_client.table(GROUPS_TABLE).insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Impossible de créer le groupe.",
+        )
+    group_row = response.data[0]
+
+    supabase_client.table(GROUP_MEMBERS_TABLE).insert(
+        {
+            "group_id": group_row["id"],
+            "user_id": creator["id"],
+            "role": GroupMemberRole.ADMIN.value,
+        }
+    ).execute()
+
+    return _row_to_group(group_row)
+
+
+def get_group(group_id: int) -> GroupDetail:
+    row = _get_group_or_404(group_id)
+    members = _list_members(group_id)
+    base = _row_to_group(row, member_count_override=len(members))
+    return GroupDetail(**base.model_dump(), members=members)
+
+
+def join_group(group_id: int, user_id: int) -> GroupDetail:
+    _get_group_or_404(group_id)
+    _get_profile_or_404(user_id)
+
+    existing = (
+        supabase_client.table(GROUP_MEMBERS_TABLE)
+        .select("group_id")
+        .eq("group_id", group_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if existing.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Vous êtes déjà membre de ce groupe.",
+        )
+
+    supabase_client.table(GROUP_MEMBERS_TABLE).insert(
+        {
+            "group_id": group_id,
+            "user_id": user_id,
+            "role": GroupMemberRole.MEMBER.value,
+        }
+    ).execute()
+    return get_group(group_id)
+
+
+def leave_group(group_id: int, user_id: int) -> GroupDetail:
+    group_row = _get_group_or_404(group_id)
+    if group_row["creator_id"] == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le créateur ne peut pas quitter son propre groupe.",
+        )
+
+    delete_resp = (
+        supabase_client.table(GROUP_MEMBERS_TABLE)
+        .delete()
+        .eq("group_id", group_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not delete_resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vous n'êtes pas membre de ce groupe.",
+        )
+    return get_group(group_id)
+
+
+def list_members(group_id: int) -> list[GroupMember]:
+    _get_group_or_404(group_id)
+    return _list_members(group_id)
+
+
+def _list_members(group_id: int) -> list[GroupMember]:
+    response = (
+        supabase_client.table(GROUP_MEMBERS_TABLE)
+        .select("user_id, role, joined_at")
+        .eq("group_id", group_id)
+        .order("joined_at", desc=False)
+        .execute()
+    )
+    members: list[GroupMember] = []
+    for row in response.data:
+        profile = (
+            supabase_client.table(PROFILES_TABLE)
+            .select("full_name")
+            .eq("id", row["user_id"])
+            .execute()
+        )
+        name = profile.data[0]["full_name"] if profile.data else "Inconnu"
+        joined_raw = row["joined_at"]
+        joined_at = (
+            datetime.fromisoformat(joined_raw.replace("Z", "+00:00"))
+            if isinstance(joined_raw, str)
+            else joined_raw or datetime.now()
+        )
+        role = (
+            GroupMemberRole.ADMIN
+            if row.get("role") == GroupMemberRole.ADMIN.value
+            else GroupMemberRole.MEMBER
+        )
+        members.append(
+            GroupMember(user_id=row["user_id"], full_name=name, role=role, joined_at=joined_at)
+        )
+    return members
+
+
+def _get_group_or_404(group_id: int) -> dict:
+    response = supabase_client.table(GROUPS_TABLE).select("*").eq("id", group_id).execute()
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Groupe introuvable.",
+        )
+    return response.data[0]
+
+
+def _row_to_group(row: dict, member_count_override: int | None = None) -> Group:
+    created_raw = row.get("created_at")
+    created_at = (
+        datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+        if isinstance(created_raw, str)
+        else created_raw or datetime.now()
+    )
+
+    try:
+        category = GroupCategory(row.get("category") or GroupCategory.GENERAL.value)
+    except ValueError:
+        category = GroupCategory.GENERAL
+
+    creator_profile = (
+        supabase_client.table(PROFILES_TABLE)
+        .select("full_name")
+        .eq("id", row["creator_id"])
+        .execute()
+    )
+    creator_name = creator_profile.data[0]["full_name"] if creator_profile.data else "Inconnu"
+
+    if member_count_override is None:
+        members_resp = (
+            supabase_client.table(GROUP_MEMBERS_TABLE)
+            .select("user_id", count="exact")
+            .eq("group_id", row["id"])
+            .execute()
+        )
+        member_count = members_resp.count or len(members_resp.data or [])
+    else:
+        member_count = member_count_override
+
+    return Group(
+        id=row["id"],
+        name=row["name"],
+        description=row.get("description") or "",
+        category=category,
+        creator_id=row["creator_id"],
+        creator_name=creator_name,
+        member_count=member_count,
         created_at=created_at,
     )
