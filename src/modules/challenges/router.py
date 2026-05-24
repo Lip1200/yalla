@@ -2,12 +2,16 @@ from fastapi import APIRouter, Depends, status
 
 from src.core.security import get_current_user
 from src.modules.challenges.schemas import (
+    Badge,
     Challenge,
     ChallengeCategory,
     ChallengeCreate,
     ChallengeDifficulty,
+    ChallengeLogRequest,
+    ChallengeLogResponse,
     ChallengeStatus,
     ChallengeUpdate,
+    PatientBadge,
     PatientChallenge,
     PatientChallengeAssign,
     PatientChallengeProgressUpdate,
@@ -17,8 +21,11 @@ from src.modules.challenges.service import (
     create_challenge,
     delete_challenge,
     get_challenge,
+    list_badges,
     list_challenges,
+    list_patient_badges,
     list_patient_challenges,
+    log_challenge_progress,
     update_challenge,
     update_patient_challenge,
 )
@@ -35,6 +42,17 @@ def read_challenges(
     return list_challenges(
         category=category, difficulty=difficulty, templates_only=templates_only
     )
+
+
+# Badge routes declared BEFORE /{challenge_id} so /badges is not parsed as an int id.
+@router.get("/badges", response_model=list[Badge])
+def read_badges():
+    return list_badges()
+
+
+@router.get("/badges/patient/{patient_id}", response_model=list[PatientBadge])
+def read_patient_badges(patient_id: int):
+    return list_patient_badges(patient_id)
 
 
 @router.get("/{challenge_id}", response_model=Challenge)
@@ -78,3 +96,8 @@ def patch_patient_challenge(
     assignment_id: int, payload: PatientChallengeProgressUpdate
 ):
     return update_patient_challenge(assignment_id, payload)
+
+
+@router.post("/assignments/{assignment_id}/log", response_model=ChallengeLogResponse)
+def log_progress(assignment_id: int, payload: ChallengeLogRequest):
+    return log_challenge_progress(assignment_id, payload)
