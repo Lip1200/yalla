@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import HTTPException, status
 
 from src.core.database import supabase_client
+from src.core.security import AuthIdentity, get_profile_for_identity
 from src.modules.doctors.schemas import (
     DoctorDashboard,
     DoctorProfile,
@@ -190,11 +191,63 @@ def delete_doctor_note(doctor_id: int, patient_id: int, note_index: int) -> Pati
     return _apply_privacy_rules(_row_to_detail(update_resp.data[0]))
 
 
-def _get_doctor(doctor_id: int) -> DoctorProfile:
-    if doctor_id != doctor.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médecin introuvable.")
+def get_current_doctor(identity: AuthIdentity) -> DoctorProfile:
+    """Resolve the doctor profile for an authenticated user.
 
-    return doctor
+    Falls back to the legacy singleton (Dr. Nadia Benali, id=1) for the
+    service token caller, so demos and CI scripts keep working.
+    """
+    if identity.is_service:
+        return doctor
+
+    profile = get_profile_for_identity(identity)
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucun profil rattaché à ce compte.",
+        )
+    if profile.get("role") != "doctor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ce compte n'est pas un compte médecin.",
+        )
+    return _profile_row_to_doctor(profile)
+
+
+def _get_doctor(doctor_id: int) -> DoctorProfile:
+    """Resolve a doctor by integer id.
+
+    Checks the profiles table first (so newly-provisioned doctors via
+    signup work) and falls back to the legacy in-memory singleton for the
+    demo doctor (id=1).
+    """
+    try:
+        response = (
+            supabase_client.table("profiles")
+            .select("*")
+            .eq("id", doctor_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        response = None
+
+    if response and response.data and response.data[0].get("role") == "doctor":
+        return _profile_row_to_doctor(response.data[0])
+
+    if doctor_id == doctor.id:
+        return doctor
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médecin introuvable.")
+
+
+def _profile_row_to_doctor(row: dict) -> DoctorProfile:
+    return DoctorProfile(
+        id=row["id"],
+        full_name=row.get("full_name") or "Médecin",
+        specialty=row.get("specialty") or "",
+        facility=row.get("facility") or "",
+    )
 
 
 def _next_patient_id() -> int:

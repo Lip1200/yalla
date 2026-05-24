@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
 
-from src.core.security import get_current_user
+from src.core.security import AuthIdentity, get_current_user
 from src.modules.doctors.schemas import (
     AccessUpdate,
     DoctorDashboard,
     DoctorNoteCreate,
+    DoctorProfile,
     ExpertRoleUpdate,
     PatientAccountCreate,
     PatientAccountCreated,
@@ -15,6 +16,7 @@ from src.modules.doctors.service import (
     add_doctor_note,
     create_patient_account,
     delete_doctor_note,
+    get_current_doctor,
     get_doctor_dashboard,
     get_patient,
     list_patients,
@@ -25,6 +27,12 @@ from src.modules.doctors.service import (
 # Secure router endpoints via global dependency evaluation
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
+
+# /me MUST be declared before /{doctor_id}/... routes, otherwise FastAPI
+# matches it as doctor_id="me" and tries to parse it as int.
+@router.get("/me", response_model=DoctorProfile)
+def read_current_doctor(identity: AuthIdentity = Depends(get_current_user)):
+    return get_current_doctor(identity)
 
 
 @router.get("/{doctor_id}/dashboard", response_model=DoctorDashboard)

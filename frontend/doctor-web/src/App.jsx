@@ -33,11 +33,10 @@ import LoginScreen from "./LoginScreen";
 import YALLA_LOGO from "./assets/yalla-logo.png";
 import { API_BASE_URL, authFetch, clearSession, getSession, logout as logoutSession } from "./auth";
 
-const DOCTOR_ID = 1;
-
 export default function App() {
   const { width } = useWindowDimensions();
   const [session, setSession] = useState(() => getSession());
+  const [currentDoctor, setCurrentDoctor] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -70,9 +69,28 @@ export default function App() {
       clearSession();
     }
     setSession(null);
+    setCurrentDoctor(null);
     setDashboard(null);
     setSelectedPatient(null);
     setProfilePatient(null);
+  }
+
+  async function loadCurrentDoctor() {
+    const response = await authFetch(`${API_BASE_URL}/api/doctors/me`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(
+          "Aucun profil médecin n'est rattaché à ce compte. Contactez l'administrateur.",
+        );
+      }
+      if (response.status === 403) {
+        throw new Error("Ce compte n'est pas autorisé à accéder à l'espace médecin.");
+      }
+      throw new Error("Impossible d'identifier le médecin connecté.");
+    }
+    const data = await response.json();
+    setCurrentDoctor(data);
+    return data;
   }
 
   const isCompact = width < 920;
@@ -98,11 +116,11 @@ export default function App() {
   }, [patientFilter, patientSearch, patients]);
 
   useEffect(() => {
-    if (session) {
-      loadDashboard();
-    } else {
+    if (!session) {
       setLoading(false);
+      return;
     }
+    bootstrap();
   }, [session]);
 
   useEffect(() => {
@@ -112,10 +130,10 @@ export default function App() {
   }, [patients, selectedPatientId]);
 
   useEffect(() => {
-    if (selectedPatientId !== null) {
+    if (selectedPatientId !== null && currentDoctor) {
       loadPatient(selectedPatientId);
     }
-  }, [selectedPatientId]);
+  }, [selectedPatientId, currentDoctor]);
 
   const reviewPatients = useMemo(
     () => patients.filter((patient) => patient.progress.status === "À revoir"),
@@ -123,12 +141,26 @@ export default function App() {
   );
   const displayedDoctor = useMemo(() => buildDisplayedDoctor(session, dashboard?.doctor), [session, dashboard]);
 
-  async function loadDashboard() {
+  async function bootstrap() {
+    setLoading(true);
+    setError("");
+    try {
+      const doctor = await loadCurrentDoctor();
+      await loadDashboard(doctor.id);
+    } catch (bootstrapError) {
+      setError(bootstrapError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadDashboard(doctorId = currentDoctor?.id) {
+    if (!doctorId) return;
     setLoading(true);
     setError("");
 
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/dashboard`);
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${doctorId}/dashboard`);
       if (!response.ok) {
         throw new Error("Impossible de charger le tableau de bord médecin.");
       }
@@ -147,7 +179,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}`);
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${currentDoctor.id}/patients/${patientId}`);
       if (!response.ok) {
         throw new Error("Impossible de charger le dossier patient.");
       }
@@ -211,7 +243,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}`);
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${currentDoctor.id}/patients/${patientId}`);
       if (!response.ok) {
         throw new Error("Impossible d'ouvrir la fiche patient.");
       }
@@ -229,7 +261,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/${endpoint}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${currentDoctor.id}/patients/${patientId}/${endpoint}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -263,7 +295,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/notes`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${currentDoctor.id}/patients/${patientId}/notes`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -291,7 +323,7 @@ export default function App() {
     setError("");
 
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/${patientId}/notes/${noteIndex}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${currentDoctor.id}/patients/${patientId}/notes/${noteIndex}`, {
         method: "DELETE",
       });
 
@@ -389,9 +421,13 @@ export default function App() {
       <View style={styles.centered}>
         <Text style={styles.errorTitle}>Interface médecin indisponible</Text>
         <Text style={styles.errorText}>{error || "Le tableau de bord n'a pas pu être chargé."}</Text>
-        <Pressable style={styles.refreshButton} onPress={loadDashboard}>
+        <Pressable style={styles.refreshButton} onPress={bootstrap}>
           <Activity size={18} color="#0f766e" />
           <Text style={styles.refreshButtonText}>Réessayer</Text>
+        </Pressable>
+        <Pressable style={[styles.refreshButton, { marginTop: 10, backgroundColor: "#fef2f2" }]} onPress={handleLogout}>
+          <LogOut size={16} color="#b91c1c" />
+          <Text style={[styles.refreshButtonText, { color: "#b91c1c" }]}>Se déconnecter</Text>
         </Pressable>
       </View>
     );
