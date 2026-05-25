@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 from fastapi import HTTPException, status
 
 from src.core.database import supabase_client
+from src.core.security import AuthIdentity, get_profile_for_identity
 from src.modules.challenges.schemas import (
     Badge,
     BadgeCriteriaKind,
@@ -95,9 +96,36 @@ def delete_challenge(challenge_id: int) -> None:
     supabase_client.table(CHALLENGES_TABLE).delete().eq("id", challenge_id).execute()
 
 
-def assign_to_patient(payload: PatientChallengeAssign) -> PatientChallenge:
+def assign_to_patient(
+    payload: PatientChallengeAssign,
+    identity: AuthIdentity | None = None,
+) -> PatientChallenge:
+    """Assign a challenge to a patient.
+
+    Permission rules (issue #41):
+    - Service token (`identity.is_service`) → always allowed.
+    - Real user → allowed if either (a) self-assignment
+      (payload.patient_id matches the caller's own profile.id), or
+      (b) caller's role is 'doctor' or 'expert_patient'.
+    - A regular patient assigning a challenge to *someone else* → 403.
+
+    `identity=None` keeps backward compatibility for internal callers
+    (e.g. tests, future bulk-assign scripts) — they bypass the check.
+    """
     _get_profile_or_404(payload.patient_id)
     challenge = get_challenge(payload.challenge_id)
+
+    if identity is not None and not identity.is_service:
+        caller_profile = get_profile_for_identity(identity)
+        caller_id = caller_profile.get("id") if caller_profile else None
+        caller_role = caller_profile.get("role") if caller_profile else None
+        is_self_assignment = caller_id == payload.patient_id
+        is_authorised_role = caller_role in ("doctor", "expert_patient")
+        if not is_self_assignment and not is_authorised_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Vous ne pouvez assigner un défi qu'à vous-même.",
+            )
 
     started_at = datetime.now()
     due_on = payload.due_on or (started_at.date() + timedelta(days=challenge.duration_days))

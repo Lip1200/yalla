@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
-from src.core.security import get_current_user
+from src.core.security import AuthIdentity, get_current_user, require_doctor_or_expert
 from src.modules.challenges.schemas import (
     Badge,
     Challenge,
@@ -60,17 +60,30 @@ def read_challenge(challenge_id: int):
     return get_challenge(challenge_id)
 
 
-@router.post("/", response_model=Challenge, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=Challenge,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_doctor_or_expert)],
+)
 def add_challenge(payload: ChallengeCreate):
     return create_challenge(payload)
 
 
-@router.patch("/{challenge_id}", response_model=Challenge)
+@router.patch(
+    "/{challenge_id}",
+    response_model=Challenge,
+    dependencies=[Depends(require_doctor_or_expert)],
+)
 def patch_challenge(challenge_id: int, payload: ChallengeUpdate):
     return update_challenge(challenge_id, payload)
 
 
-@router.delete("/{challenge_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{challenge_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_doctor_or_expert)],
+)
 def remove_challenge(challenge_id: int):
     delete_challenge(challenge_id)
 
@@ -80,8 +93,11 @@ def remove_challenge(challenge_id: int):
     response_model=PatientChallenge,
     status_code=status.HTTP_201_CREATED,
 )
-def assign_challenge(payload: PatientChallengeAssign):
-    return assign_to_patient(payload)
+def assign_challenge(
+    payload: PatientChallengeAssign,
+    identity: AuthIdentity = Depends(get_current_user),
+):
+    return assign_to_patient(payload, identity)
 
 
 @router.get("/assignments/patient/{patient_id}", response_model=list[PatientChallenge])
