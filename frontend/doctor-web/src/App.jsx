@@ -207,7 +207,7 @@ export default function App() {
 
     setCreatingPatientAccount(true);
     try {
-      const response = await authFetch(`${API_BASE_URL}/api/doctors/${DOCTOR_ID}/patients/accounts`, {
+      const response = await authFetch(`${API_BASE_URL}/api/doctors/${currentDoctor.id}/patients/accounts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
