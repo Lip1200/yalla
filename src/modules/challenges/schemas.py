@@ -85,3 +85,37 @@ class PatientChallenge(BaseModel):
     due_on: date
     completed_at: datetime | None = None
     status: ChallengeStatus
+
+
+class BadgeCriteriaKind(StrEnum):
+    FIRST_COMPLETION = "first_completion"
+    COMPLETION_COUNT = "completion_count"
+    CATEGORY_COMPLETION = "category_completion"
+
+
+class Badge(BaseModel):
+    id: int
+    code: str
+    name: str
+    description: str
+    icon: str
+    criteria_kind: BadgeCriteriaKind
+    criteria_threshold: int = Field(ge=1)
+    criteria_category: ChallengeCategory | None = None
+    created_at: datetime
+
+
+class PatientBadge(BaseModel):
+    badge: Badge
+    earned_at: datetime
+    source_assignment_id: int | None = None
+
+
+class ChallengeLogRequest(BaseModel):
+    value: int = Field(gt=0, description="Quantity to add to current_value (e.g. minutes walked, steps).")
+    source: str = Field(default="manual", max_length=40)
+
+
+class ChallengeLogResponse(BaseModel):
+    assignment: PatientChallenge
+    newly_awarded_badges: list[Badge] = Field(default_factory=list)

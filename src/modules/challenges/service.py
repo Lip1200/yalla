@@ -4,13 +4,18 @@ from fastapi import HTTPException, status
 
 from src.core.database import supabase_client
 from src.modules.challenges.schemas import (
+    Badge,
+    BadgeCriteriaKind,
     Challenge,
     ChallengeCategory,
     ChallengeCreate,
     ChallengeDifficulty,
+    ChallengeLogRequest,
+    ChallengeLogResponse,
     ChallengeStatus,
     ChallengeUnit,
     ChallengeUpdate,
+    PatientBadge,
     PatientChallenge,
     PatientChallengeAssign,
     PatientChallengeProgressUpdate,
@@ -19,6 +24,8 @@ from src.modules.challenges.schemas import (
 CHALLENGES_TABLE = "challenges"
 PATIENT_CHALLENGES_TABLE = "patient_challenges"
 PROFILES_TABLE = "profiles"
+BADGES_TABLE = "badges"
+PATIENT_BADGES_TABLE = "patient_badges"
 
 
 def list_challenges(
@@ -263,3 +270,214 @@ def _safe_enum(enum_cls, value, fallback):
         return enum_cls(value)
     except ValueError:
         return fallback
+
+
+# ===========================================================================
+# Progress logging + badge attribution (issue #22)
+# ===========================================================================
+
+
+def log_challenge_progress(assignment_id: int, payload: ChallengeLogRequest) -> ChallengeLogResponse:
+    """Increment an assignment's `current_value`, recompute `progress`, and
+    award any newly-deserved badges if the assignment crosses the completion
+    threshold (progress reaches 100% or current_value reaches target_value)."""
+    row = _get_assignment_or_404(assignment_id)
+    challenge = get_challenge(row["challenge_id"])
+
+    if row.get("status") and row["status"] != ChallengeStatus.ACTIVE.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Impossible d'enregistrer un progrès sur un défi en status '{row['status']}'.",
+        )
+
+    new_value = int(row.get("current_value") or 0) + payload.value
+    new_progress = min(100, int(round(new_value * 100 / max(1, challenge.target_value))))
+
+    changes: dict = {"current_value": new_value, "progress": new_progress}
+    just_completed = False
+    if new_progress >= 100:
+        changes["status"] = ChallengeStatus.COMPLETED.value
+        changes["completed_at"] = datetime.now().isoformat()
+        changes["progress"] = 100
+        just_completed = True
+
+    response = (
+        supabase_client.table(PATIENT_CHALLENGES_TABLE)
+        .update(changes)
+        .eq("id", assignment_id)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Enregistrement du progrès échoué.",
+        )
+
+    updated_assignment = _row_to_patient_challenge(response.data[0], challenge)
+    newly_awarded: list[Badge] = []
+    if just_completed:
+        newly_awarded = evaluate_and_award_badges(updated_assignment.patient_id, updated_assignment)
+
+    return ChallengeLogResponse(assignment=updated_assignment, newly_awarded_badges=newly_awarded)
+
+
+def list_badges() -> list[Badge]:
+    response = supabase_client.table(BADGES_TABLE).select("*").order("id", desc=False).execute()
+    return [_row_to_badge(row) for row in response.data]
+
+
+def list_patient_badges(patient_id: int) -> list[PatientBadge]:
+    _get_profile_or_404(patient_id)
+    response = (
+        supabase_client.table(PATIENT_BADGES_TABLE)
+        .select("*")
+        .eq("patient_id", patient_id)
+        .order("earned_at", desc=True)
+        .execute()
+    )
+    results: list[PatientBadge] = []
+    for row in response.data:
+        badge = _fetch_badge_by_id(row["badge_id"])
+        if badge is None:
+            continue
+        earned_raw = row.get("earned_at")
+        earned_at = (
+            datetime.fromisoformat(earned_raw.replace("Z", "+00:00"))
+            if isinstance(earned_raw, str)
+            else earned_raw or datetime.now()
+        )
+        results.append(
+            PatientBadge(
+                badge=badge,
+                earned_at=earned_at,
+                source_assignment_id=row.get("source_assignment_id"),
+            )
+        )
+    return results
+
+
+def evaluate_and_award_badges(
+    patient_id: int, completed_assignment: PatientChallenge
+) -> list[Badge]:
+    """Re-evaluate every badge criterion against the patient's history and
+    award (idempotently) those that are met. Returns the freshly-awarded
+    badges only (badges already earned are skipped)."""
+    already_earned = {row["badge_id"] for row in _patient_badge_rows(patient_id)}
+
+    completed_count = _count_completed_assignments(patient_id)
+    completed_by_category = _count_completed_by_category(patient_id)
+
+    candidates: list[tuple[Badge, bool]] = []
+    for badge in list_badges():
+        if badge.id in already_earned:
+            continue
+        if _matches_criterion(badge, completed_count, completed_by_category):
+            candidates.append((badge, True))
+
+    newly_awarded: list[Badge] = []
+    for badge, _ in candidates:
+        try:
+            supabase_client.table(PATIENT_BADGES_TABLE).insert(
+                {
+                    "patient_id": patient_id,
+                    "badge_id": badge.id,
+                    "source_assignment_id": completed_assignment.id,
+                }
+            ).execute()
+            newly_awarded.append(badge)
+        except Exception:
+            # Idempotent insert: ignore race conditions where the badge was
+            # awarded by a concurrent log call.
+            continue
+    return newly_awarded
+
+
+def _matches_criterion(
+    badge: Badge,
+    completed_count: int,
+    completed_by_category: dict[str, int],
+) -> bool:
+    if badge.criteria_kind == BadgeCriteriaKind.FIRST_COMPLETION:
+        return completed_count >= 1
+    if badge.criteria_kind == BadgeCriteriaKind.COMPLETION_COUNT:
+        return completed_count >= badge.criteria_threshold
+    if badge.criteria_kind == BadgeCriteriaKind.CATEGORY_COMPLETION:
+        if badge.criteria_category is None:
+            return False
+        category_value = badge.criteria_category.value
+        return completed_by_category.get(category_value, 0) >= badge.criteria_threshold
+    return False
+
+
+def _count_completed_assignments(patient_id: int) -> int:
+    response = (
+        supabase_client.table(PATIENT_CHALLENGES_TABLE)
+        .select("id", count="exact")
+        .eq("patient_id", patient_id)
+        .eq("status", ChallengeStatus.COMPLETED.value)
+        .execute()
+    )
+    return response.count or len(response.data or [])
+
+
+def _count_completed_by_category(patient_id: int) -> dict[str, int]:
+    completed = (
+        supabase_client.table(PATIENT_CHALLENGES_TABLE)
+        .select("challenge_id")
+        .eq("patient_id", patient_id)
+        .eq("status", ChallengeStatus.COMPLETED.value)
+        .execute()
+    )
+    counts: dict[str, int] = {}
+    for row in completed.data or []:
+        challenge_row = (
+            supabase_client.table(CHALLENGES_TABLE)
+            .select("category")
+            .eq("id", row["challenge_id"])
+            .limit(1)
+            .execute()
+        )
+        if not challenge_row.data:
+            continue
+        category = challenge_row.data[0].get("category") or ChallengeCategory.ACTIVITY.value
+        counts[category] = counts.get(category, 0) + 1
+    return counts
+
+
+def _patient_badge_rows(patient_id: int) -> list[dict]:
+    response = (
+        supabase_client.table(PATIENT_BADGES_TABLE)
+        .select("badge_id")
+        .eq("patient_id", patient_id)
+        .execute()
+    )
+    return response.data or []
+
+
+def _fetch_badge_by_id(badge_id: int) -> Badge | None:
+    response = (
+        supabase_client.table(BADGES_TABLE).select("*").eq("id", badge_id).limit(1).execute()
+    )
+    return _row_to_badge(response.data[0]) if response.data else None
+
+
+def _row_to_badge(row: dict) -> Badge:
+    created_raw = row.get("created_at")
+    created_at = (
+        datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+        if isinstance(created_raw, str)
+        else created_raw or datetime.now()
+    )
+    return Badge(
+        id=row["id"],
+        code=row["code"],
+        name=row["name"],
+        description=row.get("description") or "",
+        icon=row.get("icon") or "🏅",
+        criteria_kind=BadgeCriteriaKind(row["criteria_kind"]),
+        criteria_threshold=int(row.get("criteria_threshold") or 1),
+        criteria_category=_safe_enum(ChallengeCategory, row.get("criteria_category"), None)
+        if row.get("criteria_category")
+        else None,
+        created_at=created_at,
+    )
