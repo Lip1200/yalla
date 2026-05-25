@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     thefork_base_url: str = "https://api.thefork.io/manager/v1"
     overpass_api_url: str = "https://overpass-api.de/api/interpreter"
 
+    # Base URL of the patient-facing frontend, used to build account-setup
+    # invitation links sent to newly-created patient accounts (issue #33).
+    frontend_base_url: str = "http://127.0.0.1:8081"
+    setup_token_ttl_days: int = 7
+
 
     model_config = SettingsConfigDict(
         env_file=".env",
