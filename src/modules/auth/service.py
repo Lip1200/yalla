@@ -49,11 +49,21 @@ def signup(payload: SignupRequest) -> AuthSession:
     return _session_to_schema(response.session, response.user, payload.full_name)
 
 
+_VALID_PROFILE_ROLES = {"patient", "doctor", "expert_patient"}
+
+
 def _ensure_profile_for_auth_user(user, full_name: str) -> None:
     """Best-effort creation of a `profiles` row linked to a freshly signed-up
-    auth user. Silently no-ops if a row with this `auth_user_id` already
-    exists (idempotent for repeated signups) or if the link column is
-    missing (migration 004 not yet applied)."""
+    auth user.
+
+    Reads `role`, `specialty` and `facility` from the auth user's
+    `user_metadata` to support both patient and doctor signup flows from a
+    single endpoint (the doctor signup form populates these via the
+    SignupRequest fields). Defaults to role='patient' when unset.
+
+    Silently no-ops if a row with this `auth_user_id` already exists
+    (idempotent for repeated signups) or if the link column is missing
+    (migration 004 not yet applied)."""
     try:
         existing = (
             supabase_client.table("profiles")
@@ -65,21 +75,35 @@ def _ensure_profile_for_auth_user(user, full_name: str) -> None:
         if existing.data:
             return
 
+        metadata = getattr(user, "user_metadata", None) or {}
+        raw_role = metadata.get("role") if isinstance(metadata, dict) else None
+        role = raw_role if raw_role in _VALID_PROFILE_ROLES else "patient"
+        specialty = (metadata.get("specialty") if isinstance(metadata, dict) else None) or ""
+        facility = (metadata.get("facility") if isinstance(metadata, dict) else None) or ""
+
         next_id = _next_profile_id()
-        supabase_client.table("profiles").insert(
-            {
-                "id": next_id,
-                "auth_user_id": str(user.id),
-                "full_name": full_name,
-                "role": "patient",
-                "privacy_level": "Données limitées",
-                "primary_goal": "",
-                "weekly_activity_minutes": 0,
-                "challenge_completion_rate": 0,
-                "activity_completion_rate": 0,
-                "has_app_access": True,
-            }
-        ).execute()
+        insert_data = {
+            "id": next_id,
+            "auth_user_id": str(user.id),
+            "full_name": full_name,
+            "role": role,
+            "privacy_level": "Données limitées",
+            "primary_goal": "",
+            "weekly_activity_minutes": 0,
+            "challenge_completion_rate": 0,
+            "activity_completion_rate": 0,
+            "has_app_access": True,
+            "specialty": specialty,
+            "facility": facility,
+        }
+        try:
+            supabase_client.table("profiles").insert(insert_data).execute()
+        except Exception:
+            # Fallback for environments where migration 006 hasn't been
+            # applied yet: retry without the new columns.
+            insert_data.pop("specialty", None)
+            insert_data.pop("facility", None)
+            supabase_client.table("profiles").insert(insert_data).execute()
     except Exception:
         # Best-effort: never block signup on profile provisioning.
         return
