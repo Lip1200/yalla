@@ -668,9 +668,16 @@ function PatientAccountCreator({ creating, error, form, onChange, onCreate, resu
       {result ? (
         <View style={styles.accountResult}>
           <Text style={styles.accountResultTitle}>Compte créé pour {result.patient.full_name}</Text>
-          <Text style={styles.accountResultText}>Login : {result.email}</Text>
-          <Text style={styles.accountResultText}>Mot de passe temporaire : {result.temporary_password}</Text>
-          <Text style={styles.accountResultText}>{result.email_status}</Text>
+          <Text style={styles.accountResultText}>Email : {result.email}</Text>
+          <Text style={styles.accountResultText}>
+            Lien d'invitation à transmettre au patient (valide jusqu'au {formatDate(result.expires_at)}) :
+          </Text>
+          <Text style={[styles.accountResultText, { fontWeight: "700", userSelect: "text" }]} selectable>
+            {result.invitation_url}
+          </Text>
+          <Text style={styles.accountResultText}>
+            {result.setup_status ?? "Le patient choisira son mot de passe lors de l'ouverture du lien."}
+          </Text>
         </View>
       ) : null}
     </View>
