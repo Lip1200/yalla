@@ -1,0 +1,51 @@
+# Yalla reverse proxy.
+#
+# Caddy sits in front of everything else and:
+#   • terminates HTTPS automatically via Let's Encrypt when DEPLOY_HOST
+#     is a real public hostname (real domain or *.nip.io maps to your IP)
+#   • routes /api/*, /docs, /openapi.json, /redoc → backend:8000
+#   • routes everything else → doctor-web:80
+#
+# Env vars consumed (set by docker-compose from the root .env):
+#   DEPLOY_HOST          e.g. "138-197-12-34.nip.io" or "yalla.example.com"
+#                        Use ":80" for plain HTTP on a bare IP demo.
+#   LETSENCRYPT_EMAIL    optional but recommended — used by Let's Encrypt
+#                        for renewal notices.
+
+{
+	# Global options. LETSENCRYPT_EMAIL is optional — if blank, Caddy
+	# falls back to anonymous ACME registration (still works, but no
+	# expiry notifications).
+	email {$LETSENCRYPT_EMAIL:noreply@example.com}
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$DEPLOY_HOST} {
+	encode zstd gzip
+
+	# Backend API + Swagger docs
+	@api {
+		path /api/*
+		path /docs
+		path /docs/*
+		path /redoc
+		path /redoc/*
+		path /openapi.json
+	}
+	reverse_proxy @api backend:8000
+
+	# Everything else → doctor-web SPA
+	reverse_proxy doctor-web:80
+
+	# Security headers (light touch — adjust per security review)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Allow Supabase + Overpass in CSP — adjust if you change deps.
+		# (Comment out if too restrictive during demos.)
+		-Server
+	}
+}
