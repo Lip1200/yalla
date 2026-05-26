@@ -96,3 +96,29 @@ def get_profile_for_identity(identity: AuthIdentity) -> dict | None:
     except Exception:
         return None
     return response.data[0] if response.data else None
+
+
+def require_doctor_or_expert(identity: AuthIdentity = Depends(get_current_user)) -> AuthIdentity:
+    """Dependency that restricts an endpoint to doctors, expert patients,
+    and the service-token caller.
+
+    Regular patients (`role='patient'`) are rejected with 403. Used to
+    gate challenge-template authoring (issue #41) — only doctors and
+    expert patients can create or edit the catalogue; regular patients
+    can only self-assign existing templates.
+    """
+    if identity.is_service:
+        return identity
+    profile = get_profile_for_identity(identity)
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Aucun profil rattaché à ce compte.",
+        )
+    role = profile.get("role")
+    if role not in ("doctor", "expert_patient"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Action réservée aux médecins et aux patients experts.",
+        )
+    return identity
