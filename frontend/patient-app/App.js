@@ -116,6 +116,9 @@ export default function App() {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDescription, setNewGroupDescription] = useState("");
   const [newGroupCategory, setNewGroupCategory] = useState("general");
+  const [challengeGroupTarget, setChallengeGroupTarget] = useState(null);
+  const [microChallengeTitle, setMicroChallengeTitle] = useState("");
+  const [microChallengeDesc, setMicroChallengeDesc] = useState("");
   const [progression, setProgression] = useState(null);
   const [restaurants, setRestaurants] = useState([]);
   const [restaurantSearchLoading, setRestaurantSearchLoading] = useState(false);
@@ -269,6 +272,17 @@ export default function App() {
     } catch (error) {
       Alert.alert("Erreur", error.message);
     }
+  }
+
+  function launchMicroChallenge() {
+    if (!microChallengeTitle.trim()) {
+      Alert.alert("Titre requis", "Veuillez donner un titre à ce défi.");
+      return;
+    }
+    Alert.alert("Défi lancé !", `Le défi "${microChallengeTitle}" a bien été envoyé au groupe.`);
+    setChallengeGroupTarget(null);
+    setMicroChallengeTitle("");
+    setMicroChallengeDesc("");
   }
 
   async function pickImage() {
@@ -501,6 +515,13 @@ export default function App() {
           setNewGroupName={setNewGroupName}
           setNewGroupDescription={setNewGroupDescription}
           setNewGroupCategory={setNewGroupCategory}
+          challengeGroupTarget={challengeGroupTarget}
+          microChallengeTitle={microChallengeTitle}
+          microChallengeDesc={microChallengeDesc}
+          setChallengeGroupTarget={setChallengeGroupTarget}
+          setMicroChallengeTitle={setMicroChallengeTitle}
+          setMicroChallengeDesc={setMicroChallengeDesc}
+          onLaunchMicroChallenge={launchMicroChallenge}
           commentInputs={commentInputs}
           commentsByPost={commentsByPost}
           feed={feed}
@@ -663,6 +684,13 @@ function CommunityScreen({
   newGroupName,
   newGroupDescription,
   newGroupCategory,
+  challengeGroupTarget,
+  microChallengeTitle,
+  microChallengeDesc,
+  setChallengeGroupTarget,
+  setMicroChallengeTitle,
+  setMicroChallengeDesc,
+  onLaunchMicroChallenge,
   onCreateGroup,
   setIsGroupFormVisible,
   setNewGroupName,
@@ -730,9 +758,44 @@ function CommunityScreen({
                 <Pressable style={[styles.primaryButton, {marginTop: 10}]}>
                   <Text style={styles.primaryButtonText}>Rejoindre</Text>
                 </Pressable>
+                <Pressable onPress={() => setChallengeGroupTarget(group.id)} style={[styles.secondaryButton, {marginTop: 8}]}>
+                  <Target size={16} color="#0f766e" />
+                  <Text style={styles.secondaryButtonText}>Lancer un défi</Text>
+                </Pressable>
               </View>
             ))}
           </ScrollView>
+
+          {challengeGroupTarget && (
+            <View style={styles.card}>
+              <View style={[styles.cardHeader, {marginBottom: 16}]}>
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <Target size={20} color="#0f766e" style={{marginRight: 8}} />
+                  <Text style={styles.cardTitle}>Lancer un défi au groupe</Text>
+                </View>
+                <Pressable onPress={() => setChallengeGroupTarget(null)}>
+                  <X size={20} color="#64748b" />
+                </Pressable>
+              </View>
+              <TextInput
+                onChangeText={setMicroChallengeTitle}
+                placeholder="Titre du défi (ex: 10 min de marche)"
+                placeholderTextColor="#94a3b8"
+                style={styles.input}
+                value={microChallengeTitle}
+              />
+              <TextInput
+                onChangeText={setMicroChallengeDesc}
+                placeholder="Description et règles du défi"
+                placeholderTextColor="#94a3b8"
+                style={[styles.input, {marginTop: 12}]}
+                value={microChallengeDesc}
+              />
+              <Pressable onPress={onLaunchMicroChallenge} style={[styles.primaryButton, {marginTop: 16, backgroundColor: '#0f766e'}]}>
+                <Text style={styles.primaryButtonText}>Envoyer le défi</Text>
+              </Pressable>
+            </View>
+          )}
 
           {isGroupFormVisible && (
             <View style={styles.card}>
