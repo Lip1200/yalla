@@ -42,7 +42,13 @@ def get_doctor_dashboard(doctor_id: int) -> DoctorDashboard:
 
 def list_patients(doctor_id: int) -> list[PatientSummary]:
     _get_doctor(doctor_id)
-    response = supabase_client.table("profiles").select("*").order("id", desc=False).execute()
+    response = (
+        supabase_client.table("profiles")
+        .select("*")
+        .in_("role", ["patient", "expert_patient"])
+        .order("id", desc=False)
+        .execute()
+    )
     return [_to_summary(_row_to_detail(row)) for row in response.data]
 
 
