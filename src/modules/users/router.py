@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.core.security import get_current_user
+from src.core.security import AuthIdentity, get_current_user, get_profile_for_identity
 from src.modules.users.schemas import (
     Profile,
     ProfileCreate,
@@ -8,6 +8,7 @@ from src.modules.users.schemas import (
     ProfileUpdate,
 )
 from src.modules.users.service import (
+    _row_to_profile,
     create_profile,
     delete_profile,
     get_profile,
@@ -22,6 +23,25 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 @router.get("/", response_model=list[Profile])
 def read_profiles(limit: int = 50, offset: int = 0):
     return list_profiles(limit=limit, offset=offset)
+
+
+# /me MUST be declared before /{user_id} so FastAPI doesn't try to
+# parse "me" as an int. Patient-app (#28) uses this to resolve the
+# integer profile.id from the auth bearer token.
+@router.get("/me", response_model=Profile)
+def read_current_profile(identity: AuthIdentity = Depends(get_current_user)):
+    if identity.is_service:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="L'endpoint /me requiert un utilisateur authentifié, pas le service token.",
+        )
+    profile_row = get_profile_for_identity(identity)
+    if not profile_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucun profil rattaché à ce compte.",
+        )
+    return _row_to_profile(profile_row)
 
 
 @router.get("/{user_id}", response_model=Profile)
