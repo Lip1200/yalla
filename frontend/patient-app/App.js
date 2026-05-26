@@ -615,12 +615,9 @@ export default function App() {
               )}
             </View>
           </View>
-          <Pressable
-            onPress={() => setActivePatientId(isExpert ? PATIENT_ID : EXPERT_PATIENT_ID)}
-            style={styles.roleSwitch}
-          >
+          <View style={styles.roleSwitch}>
             <Text style={styles.roleSwitchText}>{isExpert ? "Expert" : "Patient"}</Text>
-          </Pressable>
+          </View>
         </View>
 
         <View style={styles.content}>
