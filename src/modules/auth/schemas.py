@@ -1,12 +1,32 @@
 from pydantic import BaseModel, EmailStr, Field
 
 
-class SignupRequest(BaseModel):
+class PatientSignupRequest(BaseModel):
+    """Public patient signup. The server hardcodes role='patient' — there
+    is no `role` field on this schema so a client cannot escalate to
+    doctor by tampering with the payload."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=72)
+    full_name: str = Field(min_length=2, max_length=120)
+
+
+class DoctorSignupRequest(BaseModel):
+    """Doctor signup. Same anti-escalation rule: the server hardcodes
+    role='doctor', the client cannot pass it. Specialty + facility are
+    accepted because they are profile data, not authorization fields."""
+
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     full_name: str = Field(min_length=2, max_length=120)
     specialty: str = Field(default="", max_length=120)
     facility: str = Field(default="", max_length=160)
+
+
+# Backward-compatibility alias for the legacy /api/auth/signup endpoint —
+# which historically created doctor accounts only. New callers should use
+# the explicit DoctorSignupRequest / PatientSignupRequest types instead.
+SignupRequest = DoctorSignupRequest
 
 
 class LoginRequest(BaseModel):

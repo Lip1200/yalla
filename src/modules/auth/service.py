@@ -6,7 +6,9 @@ from src.core.database import supabase_client
 from src.modules.auth.schemas import (
     AuthSession,
     AuthUser,
+    DoctorSignupRequest,
     LoginRequest,
+    PatientSignupRequest,
     RefreshRequest,
     SetupPasswordRequest,
     SignupRequest,
@@ -16,20 +18,59 @@ ACCOUNT_SETUP_TOKENS_TABLE = "account_setup_tokens"
 PROFILES_TABLE = "profiles"
 
 
+def signup_patient(payload: PatientSignupRequest) -> AuthSession:
+    """Create a patient account. Server hardcodes role='patient' — the
+    client has no way to set the role from outside (no `role` field on
+    PatientSignupRequest)."""
+    return _do_signup(
+        email=str(payload.email),
+        password=payload.password,
+        metadata={
+            "full_name": payload.full_name,
+            "role": "patient",
+        },
+        full_name=payload.full_name,
+    )
+
+
+def signup_doctor(payload: DoctorSignupRequest) -> AuthSession:
+    """Create a doctor account. Server hardcodes role='doctor'. Specialty
+    and facility are accepted because they are profile data, not
+    authorization fields."""
+    return _do_signup(
+        email=str(payload.email),
+        password=payload.password,
+        metadata={
+            "full_name": payload.full_name,
+            "specialty": payload.specialty,
+            "facility": payload.facility,
+            "role": "doctor",
+        },
+        full_name=payload.full_name,
+    )
+
+
 def signup(payload: SignupRequest) -> AuthSession:
+    """DEPRECATED — kept for backward compatibility with the
+    doctor-web LoginScreen that still POSTs /api/auth/signup. Forwards
+    to `signup_doctor` (the only historical use case). New code should
+    target `/api/auth/signup/doctor` or `/api/auth/signup/patient`
+    explicitly."""
+    return signup_doctor(payload)
+
+
+def _do_signup(
+    email: str,
+    password: str,
+    metadata: dict,
+    full_name: str,
+) -> AuthSession:
     try:
         response = supabase_client.auth.sign_up(
             {
-                "email": payload.email,
-                "password": payload.password,
-                "options": {
-                    "data": {
-                        "full_name": payload.full_name,
-                        "specialty": payload.specialty,
-                        "facility": payload.facility,
-                        "role": "doctor",
-                    }
-                },
+                "email": email,
+                "password": password,
+                "options": {"data": metadata},
             }
         )
     except Exception as exc:
@@ -44,7 +85,7 @@ def signup(payload: SignupRequest) -> AuthSession:
             detail="Inscription échouée : utilisateur non créé.",
         )
 
-    _ensure_profile_for_auth_user(response.user, payload.full_name)
+    _ensure_profile_for_auth_user(response.user, full_name)
 
     if response.session is None:
         raise HTTPException(
@@ -52,7 +93,7 @@ def signup(payload: SignupRequest) -> AuthSession:
             detail="Inscription enregistrée. Confirmation par email requise avant connexion.",
         )
 
-    return _session_to_schema(response.session, response.user, payload.full_name)
+    return _session_to_schema(response.session, response.user, full_name)
 
 
 _VALID_PROFILE_ROLES = {"patient", "doctor", "expert_patient"}
