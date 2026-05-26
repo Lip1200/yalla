@@ -36,8 +36,10 @@ import {
   X,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as Linking from "expo-linking";
 
 import PedometerCard from "./components/PedometerCard";
+import SetupAccountScreen from "./components/SetupAccountScreen";
 
 const YALLA_LOGO = require("./assets/yalla-logo.png");
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
@@ -110,6 +112,10 @@ export default function App() {
 
   const [activePatientId, setActivePatientId] = useState(PATIENT_ID);
   const [activeTab, setActiveTab] = useState("home");
+  // Account setup flow (#37): set when the app is opened via a
+  // `?token=...` invitation URL. Renders SetupAccountScreen instead
+  // of the main shell until the user finishes or cancels.
+  const [setupToken, setSetupToken] = useState(null);
   const [serviceView, setServiceView] = useState("messages");
   const [profile, setProfile] = useState(null);
   const [feed, setFeed] = useState([]);
@@ -154,6 +160,37 @@ export default function App() {
 
     return baseTabs;
   }, [isExpert]);
+
+  // #37 — detect a `?token=...` URL on app launch (deep link or pasted
+  // by the user via the Setup screen's input). Both the initial URL and
+  // any subsequent URL event (foregrounded from a notification, etc.)
+  // are inspected.
+  useEffect(() => {
+    let cancelled = false;
+    function extractToken(url) {
+      if (!url) return null;
+      try {
+        const parsed = Linking.parse(url);
+        const token = parsed?.queryParams?.token;
+        return typeof token === "string" && token.length > 0 ? token : null;
+      } catch {
+        return null;
+      }
+    }
+    (async () => {
+      const initial = await Linking.getInitialURL();
+      const tok = extractToken(initial);
+      if (!cancelled && tok) setSetupToken(tok);
+    })();
+    const sub = Linking.addEventListener("url", ({ url }) => {
+      const tok = extractToken(url);
+      if (tok) setSetupToken(tok);
+    });
+    return () => {
+      cancelled = true;
+      sub?.remove?.();
+    };
+  }, []);
 
   useEffect(() => {
     loadApp();
@@ -396,6 +433,22 @@ export default function App() {
           <YallaLogo size={72} />
           <ActivityIndicator color="#0f766e" size="large" />
           <RNText style={styles.loadingText}>Yalla</RNText>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  // #37 — Patient opened the app via an invitation link → bypass the
+  // normal shell and walk them through password setup.
+  if (setupToken) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.screen}>
+          <StatusBar style="dark" />
+          <SetupAccountScreen
+            initialToken={setupToken}
+            onDone={() => setSetupToken(null)}
+          />
         </SafeAreaView>
       </SafeAreaProvider>
     );

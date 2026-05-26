@@ -88,3 +88,33 @@ Au premier lancement, Expo demande à l'utilisateur via les popups système stan
    - POST les pas vers `/api/challenges/assignments/{id}/log` (cf. issue #22).
    - Affiche la progression mise à jour + les badges éventuellement débloqués.
 5. Bouton **"Localiser pour les restos proches"** — récupère la position GPS pour personnaliser les recommandations Overpass.
+
+## Flow setup compte invité par médecin (#37)
+
+Quand un médecin crée un compte patient via le `doctor-web`, le backend (cf. issue #33) renvoie un `invitation_url` du type :
+
+```
+http://app.yalla/setup?token=<32-bytes-random>
+```
+
+Le médecin transmet cette URL au patient (mail, SMS, en présence). À l'ouverture :
+
+1. **Détection automatique** : l'app intercepte l'URL via `expo-linking` et passe directement à l'écran `SetupAccountScreen`. Le token est pré-rempli.
+2. **Fallback manuel** : si le patient ouvre l'app puis colle l'URL dans le champ texte, le screen extrait le token quand même (regex sur `?token=…`).
+3. Le patient choisit son mot de passe → `POST /api/auth/setup-password { token, password }`.
+4. Sur succès, la session AuthSession retournée par le backend est stockée localement via `expo-secure-store` (`services/auth.js::saveSession`). #28 consommera cette session.
+5. Mapping des erreurs :
+   - 404 → "Lien introuvable"
+   - 400 → "Lien déjà utilisé"
+   - 410 → "Lien expiré"
+   - 422 → validation Pydantic
+   - 202 → "Vérifie ton email" (confirmation requise)
+
+### Configuration deep-linking
+
+`app.json` déclare `scheme: "yalla"` → l'OS sait que `yalla://setup?token=XXX` doit ouvrir cette app. Pour la démo en Expo Go, le scheme natif n'est pas accessible mais le fallback manuel (paste de l'URL HTTPS) fonctionne pareil.
+
+### Limitations
+
+- En Expo Go, le custom URL scheme `yalla://` n'est pas enregistré (c'est Expo Go qui détient les schemes système). Pour activer le vrai deep-linking : passer en Dev Build (#34).
+- Le storage de session via `expo-secure-store` ne fonctionne pas sur le web → fallback mémoire (perdu au refresh).
