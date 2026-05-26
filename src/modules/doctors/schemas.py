@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -90,5 +90,16 @@ class PatientAccountCreate(BaseModel):
 class PatientAccountCreated(BaseModel):
     patient: PatientSummary
     email: EmailStr
-    temporary_password: str
-    email_status: str
+    invitation_url: str = Field(
+        description=(
+            "One-shot URL to send to the patient. They open it, choose their "
+            "password, and only then a Supabase Auth user is created and "
+            "linked to the pre-provisioned profile row. Replaces the old "
+            "temporary_password field for security (cf. issue #33)."
+        )
+    )
+    expires_at: datetime
+    setup_status: str = Field(
+        default="Lien d'invitation à transmettre au patient.",
+        description="Human-readable status for the doctor UI.",
+    )

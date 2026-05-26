@@ -1,9 +1,9 @@
 import secrets
-import string
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
+from src.core.config import settings
 from src.core.database import supabase_client
 from src.core.security import AuthIdentity, get_profile_for_identity
 from src.modules.doctors.schemas import (
@@ -47,25 +47,11 @@ def list_patients(doctor_id: int) -> list[PatientSummary]:
 
 
 def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> PatientAccountCreated:
+    """Provision a patient profile + an invitation token. NO auth user, NO
+    password generated server-side. The patient opens the invitation_url,
+    picks their own password, and only then the auth user is created and
+    linked back (cf. /api/auth/setup-password, issue #33)."""
     _get_doctor(doctor_id)
-    password = _generate_temporary_password()
-    email_status = "Email d'invitation Supabase envoyé si la confirmation email est activée."
-
-    try:
-        supabase_client.auth.sign_up(
-            {
-                "email": str(payload.email),
-                "password": password,
-                "options": {
-                    "data": {
-                        "full_name": payload.full_name,
-                        "role": "patient",
-                    }
-                },
-            }
-        )
-    except Exception as exc:
-        email_status = f"Compte auth non créé automatiquement : {exc}"
 
     next_id = _next_patient_id()
     insert_data = {
@@ -82,7 +68,7 @@ def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> Pat
         "last_check_in": date.today().isoformat(),
         "status": "Nouveau",
         "care_notes": [
-            f"Compte créé par le médecin. Login : {payload.email}. Mot de passe temporaire : {password}",
+            f"Compte créé par le médecin pour {payload.email}. En attente de finalisation par le patient.",
         ],
         "doctor_notes": [],
     }
@@ -93,14 +79,35 @@ def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> Pat
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Compte auth créé, mais profil patient impossible à enregistrer : {exc}",
+            detail=f"Profil patient impossible à enregistrer : {exc}",
         ) from exc
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.setup_token_ttl_days)
+    try:
+        supabase_client.table("account_setup_tokens").insert(
+            {
+                "token": token,
+                "patient_id": patient_row["id"],
+                "email": str(payload.email),
+                "expires_at": expires_at.isoformat(),
+            }
+        ).execute()
+    except Exception as exc:
+        # Rollback the orphan profile row so the doctor can retry cleanly.
+        supabase_client.table("profiles").delete().eq("id", patient_row["id"]).execute()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Création du token d'invitation impossible : {exc}",
+        ) from exc
+
+    invitation_url = f"{settings.frontend_base_url.rstrip('/')}/setup?token={token}"
 
     return PatientAccountCreated(
         patient=_to_summary(_row_to_detail(patient_row)),
         email=payload.email,
-        temporary_password=password,
-        email_status=email_status,
+        invitation_url=invitation_url,
+        expires_at=expires_at,
     )
 
 
@@ -255,11 +262,6 @@ def _next_patient_id() -> int:
     if not response.data:
         return 101
     return int(response.data[0]["id"]) + 1
-
-
-def _generate_temporary_password() -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "Yalla-" + "".join(secrets.choice(alphabet) for _ in range(10))
 
 
 def _row_to_detail(row: dict) -> PatientDetail:

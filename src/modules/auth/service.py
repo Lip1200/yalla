@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, status
 
 from src.core.database import supabase_client
@@ -6,8 +8,12 @@ from src.modules.auth.schemas import (
     AuthUser,
     LoginRequest,
     RefreshRequest,
+    SetupPasswordRequest,
     SignupRequest,
 )
+
+ACCOUNT_SETUP_TOKENS_TABLE = "account_setup_tokens"
+PROFILES_TABLE = "profiles"
 
 
 def signup(payload: SignupRequest) -> AuthSession:
@@ -96,6 +102,122 @@ def _next_profile_id() -> int:
     if not response.data:
         return 1001
     return int(response.data[0]["id"]) + 1
+
+
+def setup_account_password(payload: SetupPasswordRequest) -> AuthSession:
+    """Finalize a patient account created by a doctor (issue #33 flow).
+
+    Validates the one-shot token, creates the Supabase Auth user with the
+    patient-chosen password, links it back to the pre-provisioned profile
+    row via `auth_user_id`, and returns a fresh AuthSession so the patient
+    is logged in immediately.
+    """
+    token_row = _fetch_setup_token_or_404(payload.token)
+
+    if token_row.get("used_at"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lien d'invitation déjà utilisé.",
+        )
+
+    expires_raw = token_row.get("expires_at")
+    expires_at = (
+        datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+        if isinstance(expires_raw, str)
+        else expires_raw
+    )
+    if expires_at and datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Lien d'invitation expiré. Demandez à votre médecin de le régénérer.",
+        )
+
+    email = token_row.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lien d'invitation invalide (email manquant).",
+        )
+
+    profile_id = token_row.get("patient_id")
+    profile_row = (
+        supabase_client.table(PROFILES_TABLE).select("full_name").eq("id", profile_id).limit(1).execute()
+    )
+    full_name = (
+        profile_row.data[0]["full_name"]
+        if profile_row.data
+        else email.split("@")[0]
+    )
+
+    try:
+        signup_response = supabase_client.auth.sign_up(
+            {
+                "email": email,
+                "password": payload.password,
+                "options": {
+                    "data": {
+                        "full_name": full_name,
+                        "role": "patient",
+                    }
+                },
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Création du compte impossible : {exc}",
+        ) from exc
+
+    if signup_response.user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Création du compte impossible : utilisateur non créé.",
+        )
+
+    # Link the auth user back to the pre-provisioned profile row.
+    try:
+        supabase_client.table(PROFILES_TABLE).update(
+            {"auth_user_id": str(signup_response.user.id)}
+        ).eq("id", profile_id).execute()
+    except Exception:
+        # Profile link failure is non-blocking for the patient — they can
+        # still log in, but they'll have no profile until the link is
+        # repaired manually. Logged here for the doctor to see (TODO).
+        pass
+
+    # Burn the token (idempotent).
+    try:
+        supabase_client.table(ACCOUNT_SETUP_TOKENS_TABLE).update(
+            {"used_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("token", payload.token).execute()
+    except Exception:
+        pass
+
+    if signup_response.session is None:
+        # Supabase email-confirmation mode: account exists but no session
+        # until the user clicks the confirmation email.
+        raise HTTPException(
+            status_code=status.HTTP_202_ACCEPTED,
+            detail="Compte créé. Confirmation par email requise avant connexion.",
+        )
+
+    return _session_to_schema(signup_response.session, signup_response.user, full_name)
+
+
+def _fetch_setup_token_or_404(token: str) -> dict:
+    response = (
+        supabase_client.table(ACCOUNT_SETUP_TOKENS_TABLE)
+        .select("*")
+        .eq("token", token)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lien d'invitation introuvable.",
+        )
+    return response.data[0]
 
 
 def login(payload: LoginRequest) -> AuthSession:

@@ -6,6 +6,7 @@ from src.modules.auth.schemas import (
     AuthUser,
     LoginRequest,
     RefreshRequest,
+    SetupPasswordRequest,
     SignupRequest,
 )
 from src.modules.auth.service import (
@@ -13,6 +14,7 @@ from src.modules.auth.service import (
     login,
     logout,
     refresh,
+    setup_account_password,
     signup,
 )
 
@@ -33,6 +35,11 @@ def post_login(payload: LoginRequest):
 @router.post("/refresh", response_model=AuthSession)
 def post_refresh(payload: RefreshRequest):
     return refresh(payload)
+
+
+@router.post("/setup-password", response_model=AuthSession)
+def post_setup_password(payload: SetupPasswordRequest):
+    return setup_account_password(payload)
 
 
 @router.get("/me", response_model=AuthUser)
