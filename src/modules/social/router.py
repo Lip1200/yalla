@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.core.security import get_current_user
+from src.core.security import AuthIdentity, get_current_user, get_profile_for_identity
 from src.modules.social.schemas import (
     FeedPost,
     FeedPostCreate,
@@ -38,14 +38,51 @@ def publish_post(payload: FeedPostCreate):
     return create_post(payload)
 
 
+def _resolve_supporting_user_id(
+    explicit: int | None,
+    identity: AuthIdentity,
+) -> int:
+    """Pick the user_id to record as the supporter.
+
+    - Real user: derive from their profile (the explicit query param is
+      ignored — a patient cannot "like as someone else").
+    - Service token: explicit query param is required (no profile to
+      derive from); typically used by demo scripts.
+    """
+    if not identity.is_service:
+        profile = get_profile_for_identity(identity)
+        if not profile or "id" not in profile:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Aucun profil rattaché à ce compte.",
+            )
+        return int(profile["id"])
+    if explicit is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id requis pour les appels via service token.",
+        )
+    return explicit
+
+
 @router.post("/feed/{post_id}/support", response_model=SupportResponse)
-def support_post(post_id: int):
-    return add_support(post_id)
+def support_post(
+    post_id: int,
+    user_id: int | None = Query(default=None, description="Required for service token; ignored for real users."),
+    identity: AuthIdentity = Depends(get_current_user),
+):
+    resolved = _resolve_supporting_user_id(user_id, identity)
+    return add_support(post_id, resolved)
 
 
 @router.delete("/feed/{post_id}/support", response_model=SupportResponse)
-def unsupport_post(post_id: int):
-    return remove_support(post_id)
+def unsupport_post(
+    post_id: int,
+    user_id: int | None = Query(default=None, description="Required for service token; ignored for real users."),
+    identity: AuthIdentity = Depends(get_current_user),
+):
+    resolved = _resolve_supporting_user_id(user_id, identity)
+    return remove_support(post_id, resolved)
 
 
 @router.get("/groups", response_model=list[Group])
