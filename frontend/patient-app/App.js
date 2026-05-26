@@ -41,6 +41,8 @@ import * as Linking from "expo-linking";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
 
+import GroupGauge from "./components/GroupGauge";
+
 const YALLA_LOGO = require("./assets/yalla-logo.png");
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
 const PATIENT_ID = 101;
@@ -1328,8 +1330,14 @@ function SessionsScreen({
           <View key={session.id} style={styles.card}>
             <Text style={styles.cardTitle}>{session.title}</Text>
             <Text style={styles.cardMeta}>
-              {session.kind === "group" ? "Groupe" : "Individuel"} · {session.enrolled_count}/{session.capacity} places
+              {session.kind === "group" ? "Groupe" : "Individuel"}
             </Text>
+            <GroupGauge
+              current={session.enrolled_count}
+              target={session.capacity}
+              label="places"
+              compact
+            />
             <Text style={styles.cardBody}>{session.notes}</Text>
             <Text style={styles.cardFooter}>{formatDate(session.scheduled_for)}</Text>
 
