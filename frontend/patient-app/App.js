@@ -48,6 +48,7 @@ import {
   refreshSession,
 } from "./services/auth";
 
+import BadgesSection from "./components/BadgesSection";
 import GroupGauge from "./components/GroupGauge";
 
 const YALLA_LOGO = require("./assets/yalla-logo.png");
@@ -795,6 +796,8 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, pati
       </View>
 
       <PedometerCard patientId={patientId} />
+
+      <BadgesSection patientId={patientId} />
 
       <Text style={styles.sectionTitle}>Mes défis</Text>
       {activeChallenges.map((challenge) => (
