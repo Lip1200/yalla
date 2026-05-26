@@ -1,0 +1,65 @@
+# Python runtime artifacts — re-generated inside the container
+.venv/
+.python-version
+**/__pycache__
+**/*.py[cod]
+**/*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+.gitlab-ci.yml
+
+# Secrets / local config — must NEVER ship in the image
+.env
+.env.*
+!.env.example
+
+# Frontends — built separately, not served by the FastAPI container
+frontend/
+
+# Local databases / data dumps (matches the patterns in .gitignore)
+db/
+data/
+*.sqlite3
+*.db
+*.db-journal
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build / dist artifacts
+dist/
+build/
+
+# Documentation / repo metadata (keep the image lean)
+README.md
+docs/
+
+# Logs
+*.log
+logs/
+
+# Docker-related (avoid recursion)
+Dockerfile
+.dockerignore
+
+# Claude / session data — never in an image
+.claude/
+.claude*
+
+# Test outputs (none today but keep for future)
+test-results/
+playwright-report/
