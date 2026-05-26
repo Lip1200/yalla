@@ -18,6 +18,7 @@ from src.modules.social.schemas import (
 )
 
 FEED_TABLE = "feed_posts"
+FEED_SUPPORTS_TABLE = "feed_post_supports"
 PROFILES_TABLE = "profiles"
 GROUPS_TABLE = "groups"
 GROUP_MEMBERS_TABLE = "group_members"
@@ -56,38 +57,50 @@ def create_post(payload: FeedPostCreate) -> FeedPost:
     return _row_to_post(response.data[0])
 
 
-def add_support(post_id: int) -> SupportResponse:
-    row = _get_post_or_404(post_id)
-    new_likes = int(row.get("likes") or 0) + 1
-    update_response = (
-        supabase_client.table(FEED_TABLE)
-        .update({"likes": new_likes})
-        .eq("id", post_id)
-        .execute()
-    )
-    if not update_response.data:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Impossible d'ajouter le soutien.",
-        )
-    return SupportResponse(post_id=post_id, likes=update_response.data[0]["likes"])
+def add_support(post_id: int, user_id: int) -> SupportResponse:
+    """Record that `user_id` supports `post_id`. Idempotent — re-supporting
+    is a no-op (the underlying composite primary key rejects duplicates;
+    we swallow the error and just return the current count)."""
+    _get_post_or_404(post_id)
+    _get_profile_or_404(user_id)
+
+    try:
+        supabase_client.table(FEED_SUPPORTS_TABLE).insert(
+            {"post_id": post_id, "user_id": user_id}
+        ).execute()
+    except Exception:
+        # Duplicate (post_id, user_id) — primary key violation. Idempotent
+        # behaviour: report the current count without raising.
+        pass
+
+    return _refresh_likes_count(post_id)
 
 
-def remove_support(post_id: int) -> SupportResponse:
-    row = _get_post_or_404(post_id)
-    new_likes = max(0, int(row.get("likes") or 0) - 1)
-    update_response = (
-        supabase_client.table(FEED_TABLE)
-        .update({"likes": new_likes})
-        .eq("id", post_id)
+def remove_support(post_id: int, user_id: int) -> SupportResponse:
+    """Drop the support row for (post_id, user_id). No-op if there isn't one."""
+    _get_post_or_404(post_id)
+
+    supabase_client.table(FEED_SUPPORTS_TABLE).delete().eq(
+        "post_id", post_id
+    ).eq("user_id", user_id).execute()
+
+    return _refresh_likes_count(post_id)
+
+
+def _refresh_likes_count(post_id: int) -> SupportResponse:
+    """Recompute likes from feed_post_supports and update the denormalized
+    `feed_posts.likes` counter so the feed listing reads stay fast."""
+    count_resp = (
+        supabase_client.table(FEED_SUPPORTS_TABLE)
+        .select("post_id", count="exact")
+        .eq("post_id", post_id)
         .execute()
     )
-    if not update_response.data:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Impossible de retirer le soutien.",
-        )
-    return SupportResponse(post_id=post_id, likes=update_response.data[0]["likes"])
+    new_likes = count_resp.count or 0
+    supabase_client.table(FEED_TABLE).update({"likes": new_likes}).eq(
+        "id", post_id
+    ).execute()
+    return SupportResponse(post_id=post_id, likes=new_likes)
 
 
 def _get_post_or_404(post_id: int) -> dict:
