@@ -37,6 +37,8 @@ import {
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 
+import PedometerCard from "./components/PedometerCard";
+
 const YALLA_LOGO = require("./assets/yalla-logo.png");
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
 const PATIENT_ID = 101;
@@ -499,6 +501,7 @@ export default function App() {
           joinedChallengeIds={joinedChallengeIds}
           onJoinChallenge={joinChallenge}
           progression={progression}
+          patientId={activePatientId}
         />
       );
     }
@@ -626,7 +629,7 @@ function HomeScreen({ progression, profile, setActiveTab }) {
   );
 }
 
-function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression }) {
+function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, patientId }) {
   const joinedSuggestions = suggestedChallenges.filter((challenge) => joinedChallengeIds.has(challenge.id));
   const availableSuggestions = suggestedChallenges.filter((challenge) => !joinedChallengeIds.has(challenge.id));
   const activeChallenges = [...progression.active_challenges, ...joinedSuggestions];
@@ -638,6 +641,8 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression }) {
         <StatCard label="Défis" value={`${progression.challenge_completion_rate}%`} />
         <StatCard label="Série" value={`${progression.current_streak_days}j`} />
       </View>
+
+      <PedometerCard patientId={patientId} />
 
       <Text style={styles.sectionTitle}>Mes défis</Text>
       {activeChallenges.map((challenge) => (

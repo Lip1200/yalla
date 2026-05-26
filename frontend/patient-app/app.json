@@ -9,15 +9,30 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMotionUsageDescription": "Yalla utilise le podomètre du téléphone pour suivre tes pas et faire avancer tes défis d'activité.",
+        "NSLocationWhenInUseUsageDescription": "Yalla utilise ta position pour te proposer les restaurants partenaires les plus proches."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0f766e"
-      }
+      },
+      "permissions": [
+        "ACTIVITY_RECOGNITION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Yalla utilise ta position pour te proposer les restaurants partenaires les plus proches."
+        }
+      ]
     ]
   }
 }
