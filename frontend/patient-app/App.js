@@ -839,15 +839,17 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, pati
 }
 
 function ChallengeCard({ challenge }) {
+  const progress = typeof challenge.progress === "number" ? challenge.progress : 0;
+  const dueLabel = challenge.due_on ? `· échéance ${formatDate(challenge.due_on)}` : "";
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{challenge.title}</Text>
       <Text style={styles.cardMeta}>{challenge.category}</Text>
       <Text style={styles.cardBody}>{challenge.description}</Text>
       <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${challenge.progress}%` }]} />
+        <View style={[styles.progressFill, { width: `${progress}%` }]} />
       </View>
-      <Text style={styles.cardFooter}>{challenge.progress}% · échéance {formatDate(challenge.due_on)}</Text>
+      <Text style={styles.cardFooter}>{progress}% {dueLabel}</Text>
     </View>
   );
 }
