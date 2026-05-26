@@ -111,6 +111,11 @@ export default function App() {
   const [serviceView, setServiceView] = useState("messages");
   const [profile, setProfile] = useState(null);
   const [feed, setFeed] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [isGroupFormVisible, setIsGroupFormVisible] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
+  const [newGroupCategory, setNewGroupCategory] = useState("general");
   const [progression, setProgression] = useState(null);
   const [restaurants, setRestaurants] = useState([]);
   const [restaurantSearchLoading, setRestaurantSearchLoading] = useState(false);
@@ -161,17 +166,19 @@ export default function App() {
     setLoading(true);
 
     try {
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData] = await Promise.all([
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData] = await Promise.all([
         apiGet(`/api/patients/${activePatientId}/profile`),
         apiGet(`/api/patients/${activePatientId}/feed`),
         apiGet(`/api/patients/${activePatientId}/progression`),
         apiGet("/api/restaurants/recommendations"),
         apiGet(`/api/patients/${activePatientId}/messages`),
         apiGet(`/api/patients/${activePatientId}/settings`),
+        apiGet("/api/social/groups"),
       ]);
 
       setProfile(profileData);
       setFeed(feedData);
+      setGroups(groupsData);
       setProgression(progressionData);
       setRestaurants([...restaurantData, ...extraRestaurants]);
       setMessages(messageData);
@@ -236,6 +243,29 @@ export default function App() {
       setPostImageUri(null);
       setPostImageBase64(null);
       setActiveTab("community");
+    } catch (error) {
+      Alert.alert("Erreur", error.message);
+    }
+  }
+
+  async function createGroup() {
+    if (!newGroupName.trim()) {
+      Alert.alert("Nom requis", "Veuillez donner un nom à votre groupe.");
+      return;
+    }
+    try {
+      const payload = {
+        name: newGroupName.trim(),
+        description: newGroupDescription.trim(),
+        category: newGroupCategory,
+        creator_id: activePatientId,
+      };
+      const createdGroup = await apiPost("/api/social/groups", payload);
+      setGroups([createdGroup, ...groups]);
+      setIsGroupFormVisible(false);
+      setNewGroupName("");
+      setNewGroupDescription("");
+      setNewGroupCategory("general");
     } catch (error) {
       Alert.alert("Erreur", error.message);
     }
@@ -461,6 +491,16 @@ export default function App() {
     if (activeTab === "community") {
       return (
         <CommunityScreen
+          groups={groups}
+          isGroupFormVisible={isGroupFormVisible}
+          newGroupName={newGroupName}
+          newGroupDescription={newGroupDescription}
+          newGroupCategory={newGroupCategory}
+          onCreateGroup={createGroup}
+          setIsGroupFormVisible={setIsGroupFormVisible}
+          setNewGroupName={setNewGroupName}
+          setNewGroupDescription={setNewGroupDescription}
+          setNewGroupCategory={setNewGroupCategory}
           commentInputs={commentInputs}
           commentsByPost={commentsByPost}
           feed={feed}
@@ -618,6 +658,16 @@ function ChallengeCard({ challenge }) {
 }
 
 function CommunityScreen({
+  groups,
+  isGroupFormVisible,
+  newGroupName,
+  newGroupDescription,
+  newGroupCategory,
+  onCreateGroup,
+  setIsGroupFormVisible,
+  setNewGroupName,
+  setNewGroupDescription,
+  setNewGroupCategory,
   commentInputs,
   commentsByPost,
   feed,
@@ -663,6 +713,68 @@ function CommunityScreen({
               </View>
             ))}
           </ScrollView>
+
+          <Text style={styles.sectionTitle}>Groupes de soutien</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
+            <View style={styles.friendCard}>
+              <Pressable onPress={() => setIsGroupFormVisible(true)} style={[styles.secondaryButton, {height: '100%', justifyContent: 'center', backgroundColor: '#f8fafc', borderColor: '#cbd5e1', borderWidth: 1, borderStyle: 'dashed'}]}>
+                <Plus size={24} color="#0f766e" />
+                <Text style={[styles.secondaryButtonText, {marginTop: 8, fontSize: 13, color: '#475569'}]}>Créer un groupe</Text>
+              </Pressable>
+            </View>
+            {groups.map((group) => (
+              <View key={group.id} style={styles.friendCard}>
+                <Text style={styles.cardTitle}>{group.name}</Text>
+                <Text style={styles.cardMeta}>{group.category === "walking" ? "Marche" : group.category === "cooking" ? "Cuisine" : group.category === "support" ? "Soutien" : "Général"} · {group.member_count} membre(s)</Text>
+                <Text style={styles.cardBody} numberOfLines={2}>{group.description}</Text>
+                <Pressable style={[styles.primaryButton, {marginTop: 10}]}>
+                  <Text style={styles.primaryButtonText}>Rejoindre</Text>
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+
+          {isGroupFormVisible && (
+            <View style={styles.card}>
+              <View style={[styles.cardHeader, {marginBottom: 16}]}>
+                <Text style={styles.cardTitle}>Nouveau groupe</Text>
+                <Pressable onPress={() => setIsGroupFormVisible(false)}>
+                  <X size={20} color="#64748b" />
+                </Pressable>
+              </View>
+              <TextInput
+                onChangeText={setNewGroupName}
+                placeholder="Nom du groupe"
+                placeholderTextColor="#94a3b8"
+                style={styles.input}
+                value={newGroupName}
+              />
+              <TextInput
+                onChangeText={setNewGroupDescription}
+                placeholder="Description"
+                placeholderTextColor="#94a3b8"
+                style={[styles.input, {marginTop: 12}]}
+                value={newGroupDescription}
+              />
+              <View style={[styles.segmented, {marginTop: 12, marginBottom: 16, backgroundColor: '#f1f5f9'}]}>
+                {["general", "walking", "cooking", "support"].map((cat) => (
+                  <Pressable 
+                    key={cat} 
+                    onPress={() => setNewGroupCategory(cat)} 
+                    style={[styles.segment, newGroupCategory === cat && styles.segmentActive]}
+                  >
+                    <Text style={[styles.segmentText, newGroupCategory === cat && styles.segmentTextActive]}>
+                      {cat === "walking" ? "Marche" : cat === "cooking" ? "Cuisine" : cat === "support" ? "Soutien" : "Général"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable onPress={onCreateGroup} style={styles.primaryButton}>
+                <Text style={styles.primaryButtonText}>Créer</Text>
+              </Pressable>
+            </View>
+          )}
+
           <Text style={styles.sectionTitle}>Fil d'activité</Text>
         </View>
       }
