@@ -792,9 +792,11 @@ function HomeScreen({ progression, profile, setActiveTab }) {
 }
 
 function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, patientId, availableChallenges }) {
-  const joinedSuggestions = availableChallenges.filter((challenge) => joinedChallengeIds.has(challenge.id));
+  // progression.active_challenges is the source of truth (refreshed from DB after
+  // joinChallenge). joinedChallengeIds is kept locally as a fast filter for the
+  // "Rejoindre un défi" carousel between click and refresh.
   const availableSuggestions = availableChallenges.filter((challenge) => !joinedChallengeIds.has(challenge.id));
-  const activeChallenges = [...progression.active_challenges, ...joinedSuggestions];
+  const activeChallenges = progression.active_challenges;
 
   return (
     <ScrollView contentContainerStyle={styles.listContent}>
