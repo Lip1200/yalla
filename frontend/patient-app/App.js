@@ -38,8 +38,15 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 
+import LoginScreen from "./components/LoginScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
+import { getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
+import {
+  bootstrapSession,
+  logoutPatient,
+  refreshSession,
+} from "./services/auth";
 
 import GroupGauge from "./components/GroupGauge";
 
@@ -112,12 +119,15 @@ export default function App() {
     Inter_500Medium,
   });
 
-  const [activePatientId, setActivePatientId] = useState(PATIENT_ID);
+  const [activePatientId, setActivePatientId] = useState(null);
   const [activeTab, setActiveTab] = useState("home");
   // Account setup flow (#37): set when the app is opened via a
   // `?token=...` invitation URL. Renders SetupAccountScreen instead
   // of the main shell until the user finishes or cancels.
   const [setupToken, setSetupToken] = useState(null);
+  // #28 — session bootstrap state
+  const [session, setSession] = useState(null);
+  const [authBootstrapping, setAuthBootstrapping] = useState(true);
   const [serviceView, setServiceView] = useState("messages");
   const [profile, setProfile] = useState(null);
   const [feed, setFeed] = useState([]);
@@ -202,9 +212,71 @@ export default function App() {
     };
   }, []);
 
+  // #28 — bootstrap session + install refresh-on-401 handler.
   useEffect(() => {
-    loadApp();
+    let cancelled = false;
+    setUnauthorizedHandler(async () => {
+      const refreshed = await refreshSession();
+      if (!refreshed) {
+        if (!cancelled) {
+          setSession(null);
+          setActivePatientId(null);
+        }
+        return null;
+      }
+      if (!cancelled) setSession(refreshed);
+      return refreshed.access_token;
+    });
+    (async () => {
+      const existing = await bootstrapSession();
+      if (cancelled) return;
+      setSession(existing);
+      setAuthBootstrapping(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // #28 — when authenticated, resolve the integer profile.id via
+  // GET /api/users/me so the rest of the app can stop using the
+  // hardcoded PATIENT_ID constant.
+  useEffect(() => {
+    if (!session) {
+      setActivePatientId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await apiGet("/api/users/me");
+        if (!cancelled && me?.id) setActivePatientId(me.id);
+      } catch {
+        // /me 404 → no profile linked. Fallback to legacy demo id so
+        // the user at least sees something (rather than a stuck blank
+        // screen). #28 follow-up should expose a "Compte non rattaché"
+        // banner instead.
+        if (!cancelled) setActivePatientId(PATIENT_ID);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (activePatientId) loadApp();
   }, [activePatientId]);
+
+  async function handleLogout() {
+    await logoutPatient();
+    setSession(null);
+    setActivePatientId(null);
+    setProfile(null);
+    setFeed([]);
+    setProgression(null);
+    setActiveTab("home");
+  }
 
   async function loadApp() {
     setLoading(true);
@@ -500,6 +572,30 @@ export default function App() {
     );
   }
 
+  // #28 — auth gate: still bootstrapping?
+  if (authBootstrapping) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.centered}>
+          <YallaLogo size={72} />
+          <ActivityIndicator color="#0f766e" size="large" />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  // #28 — not authenticated → show login/signup.
+  if (!session) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.screen}>
+          <StatusBar style="dark" />
+          <LoginScreen onAuthenticated={(s) => setSession(s)} />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
   const isLoadingApp = loading || !profile || !progression || !settings || !accessSettings;
 
   return (
@@ -620,6 +716,7 @@ export default function App() {
           setSelectedConversationId={setSelectedConversationId}
           setServiceView={setServiceView}
           settings={settings}
+          onLogout={handleLogout}
         />
       );
     }
@@ -1029,6 +1126,7 @@ function ServicesScreen({
   setSelectedConversationId,
   setServiceView,
   settings,
+  onLogout,
 }) {
   return (
     <View style={styles.servicesLayout}>
@@ -1063,6 +1161,11 @@ function ServicesScreen({
           onUpdatePrivacy={onUpdatePrivacy}
           settings={settings}
         />
+      ) : null}
+      {onLogout ? (
+        <Pressable onPress={onLogout} style={styles.logoutButton}>
+          <Text style={styles.logoutButtonText}>Se déconnecter</Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -1431,11 +1534,16 @@ function mergeRestaurants(restaurants) {
   });
 }
 
+const SERVICE_TOKEN_FALLBACK = "yalla-secret-token";
+function currentAuthToken() {
+  return getActiveAccessToken() ?? SERVICE_TOKEN_FALLBACK;
+}
+
 async function apiGet(path) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
-      "Authorization": "Bearer yalla-secret-token"
-    }
+      Authorization: `Bearer ${currentAuthToken()}`,
+    },
   });
   if (!response.ok) {
     throw new Error("Impossible de charger les données.");
@@ -1446,9 +1554,9 @@ async function apiGet(path) {
 async function apiPost(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: { 
+    headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer yalla-secret-token"
+      Authorization: `Bearer ${currentAuthToken()}`,
     },
     body: JSON.stringify(payload),
   });
@@ -1461,9 +1569,9 @@ async function apiPost(path, payload) {
 async function apiPatch(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "PATCH",
-    headers: { 
+    headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer yalla-secret-token"
+      Authorization: `Bearer ${currentAuthToken()}`,
     },
     body: JSON.stringify(payload),
   });
@@ -2227,5 +2335,20 @@ const styles = StyleSheet.create({
     aspectRatio: 4 / 3,
     borderRadius: 16,
     marginTop: 12,
+  },
+  logoutButton: {
+    marginTop: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+    borderWidth: 1,
+    alignSelf: "center",
+  },
+  logoutButtonText: {
+    color: "#b91c1c",
+    fontWeight: "700",
+    fontSize: 13,
   },
 });
