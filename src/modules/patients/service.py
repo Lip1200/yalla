@@ -166,8 +166,17 @@ def create_post(patient_id: int, payload: FeedPostCreate) -> FeedPost:
 
     image_url = None
     if payload.image_base64:
-        insert_data["image_url"] = payload.image_base64
-        image_url = payload.image_base64
+        # New path: upload to Supabase Storage and store only the URL in
+        # `image_url`. Falls back to the legacy "base64 in column" or
+        # "base64 in content via ||image|| separator" behavior if the
+        # Storage upload fails (missing bucket, RLS denial, etc.) so
+        # the post still goes through.
+        try:
+            image_url = _upload_feed_image_to_storage(payload.image_base64)
+            insert_data["image_url"] = image_url
+        except Exception:
+            image_url = payload.image_base64
+            insert_data["image_url"] = payload.image_base64
 
     try:
         response = supabase_client.table("feed_posts").insert(insert_data).execute()
@@ -382,3 +391,45 @@ def _row_to_profile(row: dict) -> PatientProfile:
         weekly_activity_minutes=row["weekly_activity_minutes"],
         challenge_completion_rate=row["challenge_completion_rate"],
     )
+
+
+FEED_IMAGES_BUCKET = "feed-images"
+
+_MIME_TO_EXT = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
+
+def _decode_data_url(value: str) -> tuple[bytes, str, str]:
+    """Accept either a raw base64 string or a `data:<mime>;base64,<payload>`
+    data URL. Returns (binary, file_extension, content_type)."""
+    if value.startswith("data:"):
+        header, _, payload = value.partition(",")
+        # header e.g. "data:image/jpeg;base64"
+        mime = header.split(":", 1)[1].split(";", 1)[0].lower() or "image/jpeg"
+    else:
+        payload = value
+        mime = "image/jpeg"
+    extension = _MIME_TO_EXT.get(mime, "jpg")
+    return base64.b64decode(payload), extension, mime
+
+
+def _upload_feed_image_to_storage(image_base64: str) -> str:
+    """Decode a base64-encoded image (raw or data URL) and upload it to
+    the `feed-images` Supabase Storage bucket. Returns the public URL.
+
+    Raises on failure — the caller is expected to catch and fall back to
+    the legacy in-column or in-content storage to keep posts going through.
+    """
+    binary, extension, content_type = _decode_data_url(image_base64)
+    filename = f"{uuid.uuid4().hex}.{extension}"
+    supabase_client.storage.from_(FEED_IMAGES_BUCKET).upload(
+        path=filename,
+        file=binary,
+        file_options={"content-type": content_type, "upsert": "false"},
+    )
+    return supabase_client.storage.from_(FEED_IMAGES_BUCKET).get_public_url(filename)
