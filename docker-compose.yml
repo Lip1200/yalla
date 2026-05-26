@@ -1,0 +1,70 @@
+# Yalla — production stack for a single DigitalOcean droplet.
+#
+# Three services orchestrated by docker compose:
+#
+#   backend       FastAPI on :8000 (internal). Connects to Supabase cloud.
+#   doctor-web    Vite SPA served by Nginx on :80 (internal).
+#   caddy         Reverse proxy on :80 / :443. Auto-HTTPS via Let's Encrypt
+#                 when DEPLOY_HOST is a real domain or *.nip.io;
+#                 falls back to http-only otherwise (see Caddyfile).
+#
+# Patient-app (Expo) is NOT deployed here — it's a mobile app, tested
+# via Expo Go on a real phone (cf. frontend/patient-app/README.md).
+#
+# Bring it all up: `docker compose up -d --build`
+# Tail logs:       `docker compose logs -f`
+# Down:            `docker compose down`
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      API_SECRET_TOKEN: ${API_SECRET_TOKEN}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
+      OVERPASS_API_URL: ${OVERPASS_API_URL:-https://overpass-api.de/api/interpreter}
+      THEFORK_API_KEY: ${THEFORK_API_KEY:-}
+      SETUP_TOKEN_TTL_DAYS: ${SETUP_TOKEN_TTL_DAYS:-7}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  doctor-web:
+    build:
+      context: ./frontend/doctor-web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DEPLOY_HOST: ${DEPLOY_HOST}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+    depends_on:
+      - backend
+      - doctor-web
+
+volumes:
+  caddy_data:
+  caddy_config:
