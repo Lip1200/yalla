@@ -35,9 +35,11 @@ import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 
 import LoginScreen from "./components/LoginScreen";
+import HomeScreen from "./screens/HomeScreen";
 import OnboardingScreen from "./components/OnboardingScreen";
 import PedometerCard from "./components/PedometerCard";
 import ProfileScreen from "./screens/ProfileScreen";
+import ProgressScreen from "./screens/ProgressScreen";
 import SetupAccountScreen from "./components/SetupAccountScreen";
 import { apiDeleteVerb, setUnauthorizedHandler } from "./services/api";
 import {
@@ -916,119 +918,6 @@ export default function App() {
   }
 }
 
-function HomeScreen({ progression, profile, setActiveTab }) {
-  if (!progression || !profile) {
-    return (
-      <ScrollView contentContainerStyle={styles.listContent}>
-        <View style={styles.heroCard}>
-          <Text style={styles.heroKicker}>En attente de données</Text>
-          <Text style={styles.heroText}>
-            Impossible de charger ton tableau de bord. Tire pour rafraîchir ou reconnecte-toi.
-          </Text>
-        </View>
-      </ScrollView>
-    );
-  }
-  const nextChallenge = progression.active_challenges[0];
-
-  return (
-    <ScrollView contentContainerStyle={styles.listContent}>
-      <View style={styles.heroCard}>
-        <Text style={styles.heroKicker}>Objectif du moment</Text>
-        <Text style={styles.heroText}>{profile.main_goal}</Text>
-        <View style={styles.heroStats}>
-          <MiniStat label="minutes" value={profile.weekly_activity_minutes} />
-          <MiniStat label="défis" value={`${profile.challenge_completion_rate}%`} />
-        </View>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Aujourd'hui</Text>
-        <Pressable onPress={() => setActiveTab("progress")}>
-          <Text style={styles.linkText}>Voir défis</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{nextChallenge?.title ?? "Choisir un défi"}</Text>
-        <Text style={styles.cardBody}>
-          {nextChallenge?.description ?? "Rejoins un défi simple pour garder le rythme cette semaine."}
-        </Text>
-        {nextChallenge ? (
-          <>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${nextChallenge.progress}%` }]} />
-            </View>
-            <Text style={styles.cardFooter}>{nextChallenge.progress}% terminé</Text>
-          </>
-        ) : null}
-      </View>
-    </ScrollView>
-  );
-}
-
-
-function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, patientId, availableChallenges }) {
-  // progression.active_challenges is the source of truth (refreshed from DB after
-  // joinChallenge). joinedChallengeIds is kept locally as a fast filter for the
-  // "Rejoindre un défi" carousel between click and refresh.
-  const availableSuggestions = availableChallenges.filter((challenge) => !joinedChallengeIds.has(challenge.id));
-  const activeChallenges = progression.active_challenges;
-
-  return (
-    <ScrollView contentContainerStyle={styles.listContent}>
-      <View style={styles.statsRow}>
-        <StatCard label="Minutes" value={progression.weekly_activity_minutes} />
-        <StatCard label="Défis" value={`${progression.challenge_completion_rate}%`} />
-        <StatCard label="Série" value={`${progression.current_streak_days}j`} />
-      </View>
-
-      <PedometerCard patientId={patientId} />
-
-      <BadgesSection patientId={patientId} />
-
-      <Text style={styles.sectionTitle}>Mes défis</Text>
-      {activeChallenges.map((challenge) => (
-        <ChallengeCard key={challenge.id} challenge={challenge} />
-      ))}
-
-      <Text style={styles.sectionTitle}>Rejoindre un défi</Text>
-      {availableSuggestions.map((challenge) => (
-        <View key={challenge.id} style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.flex}>
-              <Text style={styles.cardTitle}>{challenge.title}</Text>
-              <Text style={styles.cardMeta}>{challenge.category}</Text>
-            </View>
-            <Pressable onPress={() => onJoinChallenge(challenge)} style={styles.iconButton}>
-              <Plus size={18} color="#ffffff" />
-            </Pressable>
-          </View>
-          <Text style={styles.cardBody}>{challenge.description}</Text>
-          {challenge.due_on ? (
-            <Text style={styles.cardFooter}>Échéance {formatDate(challenge.due_on)}</Text>
-          ) : null}
-        </View>
-      ))}
-    </ScrollView>
-  );
-}
-
-function ChallengeCard({ challenge }) {
-  const progress = typeof challenge.progress === "number" ? challenge.progress : 0;
-  const dueLabel = challenge.due_on ? `· échéance ${formatDate(challenge.due_on)}` : "";
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>{challenge.title}</Text>
-      <Text style={styles.cardMeta}>{challenge.category}</Text>
-      <Text style={styles.cardBody}>{challenge.description}</Text>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${progress}%` }]} />
-      </View>
-      <Text style={styles.cardFooter}>{progress}% {dueLabel}</Text>
-    </View>
-  );
-}
 
 function CommunityScreen({
   isExpert,
