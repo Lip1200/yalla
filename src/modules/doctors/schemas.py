@@ -47,7 +47,7 @@ class PatientProgress(BaseModel):
 class PatientSummary(BaseModel):
     id: int
     full_name: str
-    age: int
+    age: int | None = None
     primary_goal: str
     has_app_access: bool
     is_expert_patient: bool
