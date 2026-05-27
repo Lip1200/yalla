@@ -23,7 +23,14 @@
       "permissions": [
         "ACTIVITY_RECOGNITION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "ACTIVITY_RECOGNITION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "plugins": [
@@ -34,6 +41,18 @@
           "locationAlwaysAndWhenInUsePermission": "Yalla utilise ta position pour te proposer les restaurants partenaires les plus proches."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "71428d5f-7d31-4757-ab51-3a3d8c829177"
+      }
+    },
+    "owner": "lip1200",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/71428d5f-7d31-4757-ab51-3a3d8c829177"
+    }
   }
 }
