@@ -4,6 +4,7 @@ from src.core.security import get_current_user
 from fastapi import status
 
 from src.modules.patients.schemas import (
+    AccessFlagsUpdate,
     Conversation,
     ConversationStart,
     FeedPost,
@@ -25,6 +26,7 @@ from src.modules.patients.service import (
     list_feed,
     list_sessions,
     start_direct_conversation,
+    update_access_flags,
     update_privacy,
     join_session,
 )
@@ -77,6 +79,11 @@ def read_settings(patient_id: int):
 @router.patch("/{patient_id}/settings/privacy", response_model=PatientSettings)
 def change_privacy(patient_id: int, payload: PrivacySettingsUpdate):
     return update_privacy(patient_id, payload)
+
+
+@router.patch("/{patient_id}/settings/access", response_model=PatientSettings)
+def change_access_flags(patient_id: int, payload: AccessFlagsUpdate):
+    return update_access_flags(patient_id, payload)
 
 
 @router.get("/{patient_id}/sessions", response_model=list[SupportSession])

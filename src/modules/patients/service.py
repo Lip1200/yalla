@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 
 from src.core.database import supabase_client
 from src.modules.patients.schemas import (
+    AccessFlagsUpdate,
     AppRole,
     Challenge,
     Conversation,
@@ -462,18 +463,40 @@ def start_direct_conversation(patient_id: int, friend_id: int) -> Conversation:
 
 def get_settings(patient_id: int) -> PatientSettings:
     profile = get_profile(patient_id)
-    is_private = profile.privacy_level == "Données privées"
+    # Read the persisted flags directly from the profiles row. Migration 016
+    # added these as NOT NULL booleans with default TRUE, so any patient
+    # that pre-dates the migration shows up as fully sharing — same as the
+    # legacy derived behaviour.
+    row = (
+        supabase_client.table("profiles")
+        .select("share_activity, share_challenges, share_restaurants")
+        .eq("id", patient_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    flags = row[0] if row else {}
     return PatientSettings(
         profile=profile,
-        share_activity=not is_private,
-        share_challenges=not is_private,
-        share_restaurants=profile.privacy_level != "Données privées",
+        share_activity=bool(flags.get("share_activity", True)),
+        share_challenges=bool(flags.get("share_challenges", True)),
+        share_restaurants=bool(flags.get("share_restaurants", True)),
     )
 
 
 def update_privacy(patient_id: int, payload: PrivacySettingsUpdate) -> PatientSettings:
     get_profile(patient_id)
     supabase_client.table("profiles").update({"privacy_level": payload.privacy_level}).eq("id", patient_id).execute()
+    return get_settings(patient_id)
+
+
+def update_access_flags(patient_id: int, payload: AccessFlagsUpdate) -> PatientSettings:
+    """Patch one or more share_* flags. Fields left None on the payload
+    are not modified."""
+    get_profile(patient_id)
+    changes = payload.model_dump(exclude_none=True)
+    if changes:
+        supabase_client.table("profiles").update(changes).eq("id", patient_id).execute()
     return get_settings(patient_id)
 
 

@@ -41,7 +41,7 @@ import * as Linking from "expo-linking";
 import LoginScreen from "./components/LoginScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
-import { apiDeleteVerb, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
+import { apiDeleteVerb, apiPatch, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
 import {
   bootstrapSession,
   clearSession,
@@ -464,8 +464,31 @@ export default function App() {
     }
   }
 
-  function toggleAccess(key) {
-    setAccessSettings((current) => ({ ...current, [key]: !current[key] }));
+  async function toggleAccess(key) {
+    // Persisted backend flags: share_activity, share_challenges, share_restaurants.
+    // The patient-app also exposes share_posts / share_messages_with_expert as
+    // UI-only switches for now (no backend column yet); those stay local.
+    const persistedKeys = new Set(["share_activity", "share_challenges", "share_restaurants"]);
+    const nextValue = !accessSettings?.[key];
+    setAccessSettings((current) => ({ ...current, [key]: nextValue }));
+    if (!persistedKeys.has(key)) return;
+    try {
+      const updated = await apiPatch(`/api/patients/${activePatientId}/settings/access`, {
+        [key]: nextValue,
+      });
+      // Reconcile with the server's authoritative state.
+      setAccessSettings((current) => ({
+        ...current,
+        share_activity: updated.share_activity,
+        share_challenges: updated.share_challenges,
+        share_restaurants: updated.share_restaurants,
+      }));
+    } catch (error) {
+      // Roll back the optimistic flip so the UI stays in sync with the
+      // backend.
+      setAccessSettings((current) => ({ ...current, [key]: !nextValue }));
+      Alert.alert("Préférence non enregistrée", error.message);
+    }
   }
 
   function toggleLike(postId) {
@@ -1763,7 +1786,9 @@ async function apiGet(path) {
     },
   });
   if (!response.ok) {
-    throw new Error("Impossible de charger les données.");
+    const body = await response.text().catch(() => "");
+    console.warn(`[apiGet local] ${path} -> ${response.status}  ${body.slice(0, 160)}`);
+    throw new Error(`Impossible de charger les données (${response.status}).`);
   }
   return response.json();
 }
