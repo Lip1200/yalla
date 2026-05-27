@@ -41,7 +41,7 @@ import * as Linking from "expo-linking";
 import LoginScreen from "./components/LoginScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
-import { apiDeleteVerb, apiPatch, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
+import { apiDeleteVerb, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
 import {
   bootstrapSession,
   clearSession,
