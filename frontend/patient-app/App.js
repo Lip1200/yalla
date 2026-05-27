@@ -62,36 +62,6 @@ const suggestedFriends = [
   { id: 303, name: "Sara Amrani", detail: "Objectif régularité, active cette semaine" },
 ];
 
-const extraRestaurants = [
-  {
-    id: 101,
-    name: "Graines & Saveurs",
-    area: "Carouge",
-    diabetes_friendly_score: 91,
-    best_for: "Bols complets",
-    price_range: "15-22 CHF",
-    notes: "Légumes rôtis, quinoa, poisson grillé et sauces à part.",
-  },
-  {
-    id: 102,
-    name: "Bistrot du Parc",
-    area: "Paquis",
-    diabetes_friendly_score: 84,
-    best_for: "Sortie de groupe",
-    price_range: "18-28 CHF",
-    notes: "Menu simple avec viandes grillées, salades et portions ajustables.",
-  },
-  {
-    id: 103,
-    name: "Le Levain Clair",
-    area: "Plainpalais",
-    diabetes_friendly_score: 79,
-    best_for: "Brunch controle",
-    price_range: "12-18 CHF",
-    notes: "Pain complet, oeufs, yaourt nature et fruits frais sans sirops.",
-  },
-];
-
 export default function App() {
   const [fontsLoaded] = useFonts({
     Outfit_400Regular,
@@ -281,7 +251,7 @@ export default function App() {
       setGroups(groupsData);
       setProgression(progressionData);
       setAvailableChallenges(challengesData);
-      setRestaurants([...restaurantData, ...extraRestaurants]);
+      setRestaurants(restaurantData);
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
       setMessageThreads(buildThreads(messageData));
@@ -312,8 +282,7 @@ export default function App() {
         ? `?q=${encodeURIComponent(trimmedQuery)}&radius_m=5000&limit=30`
         : "?radius_m=2500&limit=20";
       const restaurantData = await apiGet(`/api/restaurants/recommendations${params}`);
-      const localMatches = trimmedQuery ? filterLocalRestaurants(extraRestaurants, trimmedQuery) : extraRestaurants;
-      setRestaurants(mergeRestaurants([...restaurantData, ...localMatches]));
+      setRestaurants(mergeRestaurants(restaurantData));
     } catch (error) {
       setRestaurantSearchError("Recherche impossible pour le moment.");
     } finally {
@@ -1521,26 +1490,6 @@ function buildThreads(conversations) {
     ];
     return threads;
   }, {});
-}
-
-function filterLocalRestaurants(restaurants, query) {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return restaurants;
-
-  return restaurants.filter((restaurant) =>
-    [
-      restaurant.name,
-      restaurant.area,
-      restaurant.cuisine_type,
-      restaurant.best_for,
-      restaurant.notes,
-      restaurant.price_range,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(normalizedQuery)
-  );
 }
 
 function mergeRestaurants(restaurants) {
