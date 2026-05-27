@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
 
 from src.core.security import get_current_user
+from fastapi import status
+
 from src.modules.patients.schemas import (
     Conversation,
+    ConversationStart,
     FeedPost,
     FeedPostCreate,
     PatientProfile,
@@ -21,6 +24,7 @@ from src.modules.patients.service import (
     list_conversations,
     list_feed,
     list_sessions,
+    start_direct_conversation,
     update_privacy,
     join_session,
 )
@@ -54,6 +58,15 @@ def read_progression(patient_id: int):
 @router.get("/{patient_id}/messages", response_model=list[Conversation])
 def read_messages(patient_id: int):
     return list_conversations(patient_id)
+
+
+@router.post(
+    "/{patient_id}/messages/start",
+    response_model=Conversation,
+    status_code=status.HTTP_201_CREATED,
+)
+def start_conversation(patient_id: int, payload: ConversationStart):
+    return start_direct_conversation(patient_id, payload.friend_id)
 
 
 @router.get("/{patient_id}/settings", response_model=PatientSettings)

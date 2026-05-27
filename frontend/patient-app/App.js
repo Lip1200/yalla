@@ -109,6 +109,8 @@ export default function App() {
   const [commentsByPost, setCommentsByPost] = useState({});
   const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
   const [friendIds, setFriendIds] = useState(new Set());
+  const [friendsList, setFriendsList] = useState([]);
+  const [isNewConvModalVisible, setIsNewConvModalVisible] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionKind, setSessionKind] = useState("group");
   const [sessionDate, setSessionDate] = useState("");
@@ -265,6 +267,7 @@ export default function App() {
       setAvailableChallenges(challengesData);
       setFriendSuggestions(suggestionsData);
       setRestaurants(restaurantData);
+      setFriendsList(friendsData ?? []);
       setFriendIds(new Set((friendsData ?? []).map((f) => f.id)));
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -511,10 +514,27 @@ export default function App() {
 
   async function addFriend(friendId) {
     try {
-      await apiPost(`/api/social/friends/${activePatientId}`, { friend_id: friendId });
+      const newFriend = await apiPost(`/api/social/friends/${activePatientId}`, { friend_id: friendId });
       setFriendIds((current) => new Set(current).add(friendId));
+      setFriendsList((current) => (current.some((f) => f.id === friendId) ? current : [newFriend, ...current]));
     } catch (error) {
       Alert.alert("Ami non ajouté", error.message);
+    }
+  }
+
+  async function startConversationWith(friendId) {
+    try {
+      const conv = await apiPost(`/api/patients/${activePatientId}/messages/start`, { friend_id: friendId });
+      setMessages((current) => {
+        if (current.some((c) => c.id === conv.id)) return current;
+        return [conv, ...current];
+      });
+      setSelectedConversationId(conv.id);
+      setIsNewConvModalVisible(false);
+      setActiveTab("services");
+      setServiceView("messages");
+    } catch (error) {
+      Alert.alert("Conversation non démarrée", error.message);
     }
   }
 
@@ -698,10 +718,13 @@ export default function App() {
       return (
         <ServicesScreen
           accessSettings={accessSettings}
+          friendsList={friendsList}
+          isNewConvModalVisible={isNewConvModalVisible}
           messageDraft={messageDraft}
           messageThreads={messageThreads}
           messages={messages}
           onSendMessage={sendMessage}
+          onStartConversation={startConversationWith}
           onToggleAccess={toggleAccess}
           onUpdatePrivacy={updatePrivacy}
           restaurants={restaurants}
@@ -710,6 +733,7 @@ export default function App() {
           onSearchRestaurants={searchRestaurants}
           selectedConversationId={selectedConversationId}
           serviceView={serviceView}
+          setIsNewConvModalVisible={setIsNewConvModalVisible}
           setMessageDraft={setMessageDraft}
           setSelectedConversationId={setSelectedConversationId}
           setServiceView={setServiceView}
@@ -1140,11 +1164,14 @@ function FeedCard({ commentInput, comments, isLiked, onAddComment, onChangeComme
 
 function ServicesScreen({
   accessSettings,
+  friendsList,
+  isNewConvModalVisible,
   messageDraft,
   messageThreads,
   messages,
   onSendMessage,
   onSearchRestaurants,
+  onStartConversation,
   onToggleAccess,
   onUpdatePrivacy,
   restaurants,
@@ -1152,6 +1179,7 @@ function ServicesScreen({
   restaurantSearchLoading,
   selectedConversationId,
   serviceView,
+  setIsNewConvModalVisible,
   setMessageDraft,
   setSelectedConversationId,
   setServiceView,
@@ -1167,11 +1195,15 @@ function ServicesScreen({
       </View>
       {serviceView === "messages" ? (
         <MessagesScreen
+          friendsList={friendsList}
+          isNewConvModalVisible={isNewConvModalVisible}
           messageDraft={messageDraft}
           messageThreads={messageThreads}
           messages={messages}
           onSendMessage={onSendMessage}
+          onStartConversation={onStartConversation}
           selectedConversationId={selectedConversationId}
+          setIsNewConvModalVisible={setIsNewConvModalVisible}
           setMessageDraft={setMessageDraft}
           setSelectedConversationId={setSelectedConversationId}
         />
@@ -1270,19 +1302,67 @@ function RestaurantsScreen({ onSearchRestaurants, restaurants, restaurantSearchE
 }
 
 function MessagesScreen({
+  friendsList,
+  isNewConvModalVisible,
   messageDraft,
   messageThreads,
   messages,
   onSendMessage,
+  onStartConversation,
   selectedConversationId,
+  setIsNewConvModalVisible,
   setMessageDraft,
   setSelectedConversationId,
 }) {
   const selectedConversation = messages.find((message) => message.id === selectedConversationId) ?? messages[0];
   const thread = selectedConversation ? messageThreads[selectedConversation.id] ?? [] : [];
+  const availableFriends = (friendsList ?? []).filter(
+    (f) => !messages.some((m) => m.contact_name === f.name),
+  );
 
   return (
     <View style={styles.messageLayout}>
+      <View style={styles.conversationHeader}>
+        <Pressable
+          onPress={() => setIsNewConvModalVisible(true)}
+          style={styles.newConvButton}
+        >
+          <Plus size={16} color="#0f766e" />
+          <Text style={styles.newConvButtonText}>Nouvelle conversation</Text>
+        </Pressable>
+      </View>
+
+      {isNewConvModalVisible ? (
+        <View style={styles.newConvPanel}>
+          <View style={styles.newConvPanelHeader}>
+            <Text style={styles.cardTitle}>Écrire à un ami</Text>
+            <Pressable onPress={() => setIsNewConvModalVisible(false)}>
+              <X size={20} color="#64748b" />
+            </Pressable>
+          </View>
+          {availableFriends.length === 0 ? (
+            <Text style={styles.cardMeta}>
+              {friendsList.length === 0
+                ? "Ajoute d'abord un ami depuis l'onglet Communauté."
+                : "Tu as déjà une conversation avec chacun de tes amis."}
+            </Text>
+          ) : (
+            availableFriends.map((friend) => (
+              <Pressable
+                key={friend.id}
+                style={styles.newConvFriendRow}
+                onPress={() => onStartConversation(friend.id)}
+              >
+                <Text style={styles.cardTitle}>{friend.name}</Text>
+                {friend.primary_goal ? (
+                  <Text style={styles.cardMeta}>{friend.primary_goal}</Text>
+                ) : null}
+              </Pressable>
+            ))
+          )}
+        </View>
+      ) : null}
+
       <FlatList
         horizontal
         contentContainerStyle={styles.conversationRail}
@@ -2178,6 +2258,46 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
+  },
+  conversationHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  newConvButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#0f766e",
+    alignSelf: "flex-start",
+  },
+  newConvButtonText: {
+    color: "#0f766e",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  newConvPanel: {
+    backgroundColor: "#ffffff",
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    gap: 10,
+  },
+  newConvPanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  newConvFriendRow: {
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
   },
   conversationChip: {
     flexDirection: "row",

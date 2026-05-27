@@ -338,7 +338,7 @@ def _fetch_conversations_for_patient(patient_id: int) -> list[Conversation]:
 
     messages_resp = (
         supabase_client.table("messages")
-        .select("conversation_id, content, sent_at")
+        .select("conversation_id, sender_id, content, sent_at")
         .in_("conversation_id", conv_ids)
         .order("sent_at", desc=True)
         .execute()
@@ -349,6 +349,9 @@ def _fetch_conversations_for_patient(patient_id: int) -> list[Conversation]:
         cid = msg["conversation_id"]
         if cid not in latest_by_conv:
             latest_by_conv[cid] = msg
+        # Own messages don't count as unread.
+        if msg.get("sender_id") == patient_id:
+            continue
         last_read = last_read_by_conv.get(cid)
         sent_at_raw = msg.get("sent_at")
         if last_read and isinstance(sent_at_raw, str) and sent_at_raw <= last_read:
@@ -390,6 +393,71 @@ def _fetch_conversations_for_patient(patient_id: int) -> list[Conversation]:
 def list_conversations(patient_id: int) -> list[Conversation]:
     get_profile(patient_id)
     return _fetch_conversations_for_patient(patient_id)
+
+
+def start_direct_conversation(patient_id: int, friend_id: int) -> Conversation:
+    """Open (or reopen) a direct 1-1 conversation between patient_id and
+    friend_id. Idempotent — if a conversation already exists with both as
+    participants, returns it instead of creating a duplicate."""
+    if patient_id == friend_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="On ne peut pas démarrer une conversation avec soi-même.",
+        )
+    get_profile(patient_id)
+    friend_profile = get_profile(friend_id)
+
+    # Find conversations the patient is already in + cross-check the friend
+    # is also a participant. Cheaper than a join: two filtered selects.
+    my_parts = (
+        supabase_client.table("conversation_participants")
+        .select("conversation_id")
+        .eq("user_id", patient_id)
+        .execute()
+    )
+    my_conv_ids = [row["conversation_id"] for row in (my_parts.data or [])]
+    if my_conv_ids:
+        friend_parts = (
+            supabase_client.table("conversation_participants")
+            .select("conversation_id")
+            .eq("user_id", friend_id)
+            .in_("conversation_id", my_conv_ids)
+            .execute()
+        )
+        if friend_parts.data:
+            # First match is fine for direct conversations (group convs are
+            # named via `title`; we don't dedupe those here).
+            existing_id = friend_parts.data[0]["conversation_id"]
+            existing = _fetch_conversations_for_patient(patient_id)
+            for conv in existing:
+                if conv.id == existing_id:
+                    return conv
+
+    # No existing direct conv — create one.
+    conv_row = (
+        supabase_client.table("conversations")
+        .insert({"kind": "direct", "title": None})
+        .execute()
+        .data[0]
+    )
+    conversation_id = conv_row["id"]
+    supabase_client.table("conversation_participants").insert(
+        [
+            {"conversation_id": conversation_id, "user_id": patient_id},
+            {"conversation_id": conversation_id, "user_id": friend_id},
+        ]
+    ).execute()
+
+    raw_role = friend_profile.role.value if hasattr(friend_profile.role, "value") else str(friend_profile.role)
+    contact_role = AppRole.EXPERT_PATIENT if raw_role == "expert_patient" else AppRole.PATIENT
+    return Conversation(
+        id=conversation_id,
+        contact_name=friend_profile.full_name,
+        contact_role=contact_role,
+        last_message="",
+        unread_count=0,
+        updated_at=datetime.now(),
+    )
 
 
 def get_settings(patient_id: int) -> PatientSettings:
