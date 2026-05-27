@@ -694,16 +694,17 @@ export default function App() {
 
   const isLoadingApp = loading || !profile || !progression || !settings || !accessSettings;
 
-  // #8 — Onboarding gate. A profile is "fresh" when the patient signed up
-  // but hasn't filled the welcome questionnaire yet (age + primary_goal are
-  // both empty). Until then we show the welcome flow instead of the main
-  // shell. Once submitted, the profile state is updated and this check
+  // #8 — Onboarding gate. PatientProfile exposes the DB column
+  // `primary_goal` as `main_goal`. A fresh signup auto-provisions the
+  // profiles row with main_goal='' (cf. _ensure_profile_for_auth_user),
+  // which is our trigger to render the welcome flow instead of the main
+  // shell. Once submitted, the PATCH updates primary_goal and the
+  // patient profile refetch reflects it as `main_goal`, so this check
   // returns false on the next render.
   const isFreshProfile =
     !!profile &&
     profile.role === "patient" &&
-    (profile.age === null || profile.age === undefined) &&
-    !(profile.primary_goal || "").trim();
+    !(profile.main_goal || "").trim();
 
   if (isFreshProfile) {
     return (
