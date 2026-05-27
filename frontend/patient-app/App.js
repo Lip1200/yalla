@@ -38,7 +38,16 @@ import LoginScreen from "./components/LoginScreen";
 import OnboardingScreen from "./components/OnboardingScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
-import { apiDeleteVerb, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
+import { apiDeleteVerb, setUnauthorizedHandler } from "./services/api";
+import {
+  API_BASE_URL,
+  apiGet,
+  apiPatch,
+  apiPost,
+  buildThreads,
+  formatDate,
+  mergeRestaurants,
+} from "./utils";
 import {
   bootstrapSession,
   clearSession,
@@ -59,7 +68,6 @@ import {
 } from "./components/atoms";
 import { styles } from "./styles";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
 const PATIENT_ID = 101;
 const EXPERT_PATIENT_ID = 102;
 
@@ -1835,87 +1843,4 @@ function SessionsScreen({
   );
 }
 
-
-function buildThreads(conversations) {
-  return conversations.reduce((threads, conversation) => {
-    threads[conversation.id] = [
-      {
-        id: `${conversation.id}-a`,
-        fromMe: false,
-        text: conversation.last_message,
-        time: formatDate(conversation.updated_at),
-      },
-      {
-        id: `${conversation.id}-b`,
-        fromMe: true,
-        text: "Merci, je regarde ca aujourd'hui.",
-        time: "Vu",
-      },
-    ];
-    return threads;
-  }, {});
-}
-
-function mergeRestaurants(restaurants) {
-  const seen = new Set();
-  return restaurants.filter((restaurant) => {
-    const key = String(restaurant.thefork_restaurant_id ?? restaurant.id ?? restaurant.name).toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-const SERVICE_TOKEN_FALLBACK = "yalla-secret-token";
-function currentAuthToken() {
-  return getActiveAccessToken() ?? SERVICE_TOKEN_FALLBACK;
-}
-
-async function apiGet(path) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Authorization: `Bearer ${currentAuthToken()}`,
-    },
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    console.warn(`[apiGet local] ${path} -> ${response.status}  ${body.slice(0, 160)}`);
-    throw new Error(`Impossible de charger les données (${response.status}).`);
-  }
-  return response.json();
-}
-
-async function apiPost(path, payload) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${currentAuthToken()}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error("Action impossible.");
-  }
-  return response.json();
-}
-
-async function apiPatch(path, payload) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${currentAuthToken()}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error("Action impossible.");
-  }
-  return response.json();
-}
-
-function formatDate(value) {
-  return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(value));
-}
 
