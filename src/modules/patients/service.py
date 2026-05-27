@@ -287,9 +287,109 @@ def get_progression(patient_id: int) -> Progression:
 
 
 
+def _fetch_conversations_for_patient(patient_id: int) -> list[Conversation]:
+    """Read the patient's conversations from the messaging tables (migration
+    011): conversation_participants → conversations → messages.
+
+    Returns a list of `Conversation` summaries (one per conv the patient
+    is in), with the OTHER participant's name as `contact_name`, the most
+    recent message body as `last_message`, and the count of messages
+    posted after the patient's `last_read_at` as `unread_count`.
+
+    Falls back to the seeded in-memory `conversations` dict when the DB
+    has no row — keeps demo patients (101, 102) populated for the class
+    presentation. Same pattern as `_fetch_active_challenges_for_patient`."""
+    parts = (
+        supabase_client.table("conversation_participants")
+        .select("conversation_id, last_read_at")
+        .eq("user_id", patient_id)
+        .execute()
+    )
+    rows = parts.data or []
+    if not rows:
+        return list(conversations.get(patient_id, []))
+
+    conv_ids = [row["conversation_id"] for row in rows]
+    last_read_by_conv: dict[int, str | None] = {
+        row["conversation_id"]: row.get("last_read_at") for row in rows
+    }
+
+    other_parts = (
+        supabase_client.table("conversation_participants")
+        .select("conversation_id, user_id")
+        .in_("conversation_id", conv_ids)
+        .neq("user_id", patient_id)
+        .execute()
+    )
+    contact_ids_by_conv: dict[int, list[int]] = {}
+    for row in other_parts.data or []:
+        contact_ids_by_conv.setdefault(row["conversation_id"], []).append(row["user_id"])
+
+    all_contact_ids = sorted({uid for ids in contact_ids_by_conv.values() for uid in ids})
+    contacts = {}
+    if all_contact_ids:
+        profile_rows = (
+            supabase_client.table("profiles")
+            .select("id, full_name, role")
+            .in_("id", all_contact_ids)
+            .execute()
+        )
+        contacts = {row["id"]: row for row in (profile_rows.data or [])}
+
+    messages_resp = (
+        supabase_client.table("messages")
+        .select("conversation_id, content, sent_at")
+        .in_("conversation_id", conv_ids)
+        .order("sent_at", desc=True)
+        .execute()
+    )
+    latest_by_conv: dict[int, dict] = {}
+    unread_by_conv: dict[int, int] = {cid: 0 for cid in conv_ids}
+    for msg in messages_resp.data or []:
+        cid = msg["conversation_id"]
+        if cid not in latest_by_conv:
+            latest_by_conv[cid] = msg
+        last_read = last_read_by_conv.get(cid)
+        sent_at_raw = msg.get("sent_at")
+        if last_read and isinstance(sent_at_raw, str) and sent_at_raw <= last_read:
+            continue
+        unread_by_conv[cid] = unread_by_conv.get(cid, 0) + 1
+
+    results: list[Conversation] = []
+    for cid in conv_ids:
+        latest = latest_by_conv.get(cid)
+        contact_ids = contact_ids_by_conv.get(cid, [])
+        contact = contacts.get(contact_ids[0]) if contact_ids else None
+        contact_name = (contact or {}).get("full_name") or "Yalla"
+        raw_role = (contact or {}).get("role")
+        contact_role = AppRole.EXPERT_PATIENT if raw_role == "expert_patient" else AppRole.PATIENT
+
+        if latest is None:
+            continue  # empty conversation, skip
+        updated_at_raw = latest.get("sent_at")
+        updated_at = (
+            datetime.fromisoformat(updated_at_raw.replace("Z", "+00:00"))
+            if isinstance(updated_at_raw, str)
+            else updated_at_raw or datetime.now()
+        )
+        results.append(
+            Conversation(
+                id=cid,
+                contact_name=contact_name,
+                contact_role=contact_role,
+                last_message=latest.get("content") or "",
+                unread_count=unread_by_conv.get(cid, 0),
+                updated_at=updated_at,
+            )
+        )
+
+    results.sort(key=lambda c: c.updated_at, reverse=True)
+    return results
+
+
 def list_conversations(patient_id: int) -> list[Conversation]:
     get_profile(patient_id)
-    return sorted(conversations.get(patient_id, []), key=lambda item: item.updated_at, reverse=True)
+    return _fetch_conversations_for_patient(patient_id)
 
 
 def get_settings(patient_id: int) -> PatientSettings:
