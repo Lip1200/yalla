@@ -84,6 +84,10 @@ class Conversation(BaseModel):
     updated_at: datetime
 
 
+class ConversationStart(BaseModel):
+    friend_id: int
+
+
 class PrivacySettingsUpdate(BaseModel):
     privacy_level: str
 
