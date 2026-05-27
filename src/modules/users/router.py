@@ -37,10 +37,36 @@ def read_current_profile(identity: AuthIdentity = Depends(get_current_user)):
         )
     profile_row = get_profile_for_identity(identity)
     if not profile_row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Aucun profil rattaché à ce compte.",
-        )
+        # Auto-provision a profile row for legacy accounts that signed up
+        # before the service-role fix. Without this, those users land on a
+        # login → /me 404 → clearSession loop with no way out. Fetches the
+        # auth.users record (admin API requires service-role key) for the
+        # metadata, then reuses the same _ensure_profile_for_auth_user
+        # helper as fresh signups.
+        from src.core.database import supabase_client
+        from src.modules.auth.service import _ensure_profile_for_auth_user
+
+        try:
+            admin_resp = supabase_client.auth.admin.get_user_by_id(identity.id)
+            user = getattr(admin_resp, "user", None)
+        except Exception:
+            user = None
+
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Aucun profil rattaché à ce compte.",
+            )
+
+        metadata = getattr(user, "user_metadata", None) or {}
+        full_name = metadata.get("full_name") or identity.email or "Patient Yalla"
+        _ensure_profile_for_auth_user(user, full_name)
+        profile_row = get_profile_for_identity(identity)
+        if not profile_row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Aucun profil rattaché à ce compte.",
+            )
     return _row_to_profile(profile_row)
 
 
