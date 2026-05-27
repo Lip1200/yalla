@@ -251,6 +251,31 @@ export default function App() {
     if (activePatientId) loadApp();
   }, [activePatientId]);
 
+  // Poll the lightweight surfaces (profile, progression, friend requests)
+  // every 60s so doctor-side changes (role flip, app access toggle,
+  // received friend request) show up without a manual reload. Full
+  // loadApp would be wasteful here — we only refresh what's likely to
+  // change on its own.
+  useEffect(() => {
+    if (!activePatientId) return;
+    const interval = setInterval(async () => {
+      try {
+        const [fresh, freshProgression, freshRequests] = await Promise.all([
+          apiGet(`/api/patients/${activePatientId}/profile`),
+          apiGet(`/api/patients/${activePatientId}/progression`),
+          apiGet(`/api/social/friends/${activePatientId}/requests`),
+        ]);
+        setProfile(fresh);
+        setProgression(freshProgression);
+        setFriendRequests(freshRequests ?? []);
+      } catch {
+        // Ignore — interval will retry. Auth errors are already handled
+        // by the apiGet refresh dance.
+      }
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [activePatientId]);
+
   async function handleLogout() {
     await logoutPatient();
     setSession(null);
