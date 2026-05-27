@@ -44,6 +44,7 @@ import SetupAccountScreen from "./components/SetupAccountScreen";
 import { getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
 import {
   bootstrapSession,
+  clearSession,
   logoutPatient,
   refreshSession,
 } from "./services/auth";
@@ -55,12 +56,6 @@ const YALLA_LOGO = require("./assets/yalla-logo.png");
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
 const PATIENT_ID = 101;
 const EXPERT_PATIENT_ID = 102;
-
-const suggestedFriends = [
-  { id: 301, name: "Nadia Benali", detail: "Marche douce, 4 défis terminés" },
-  { id: 302, name: "Youssef Haddad", detail: "Cuisine maison, nouveau dans le groupe" },
-  { id: 303, name: "Sara Amrani", detail: "Objectif régularité, active cette semaine" },
-];
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -94,6 +89,7 @@ export default function App() {
   const [progression, setProgression] = useState(null);
   const [availableChallenges, setAvailableChallenges] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
+  const [friendSuggestions, setFriendSuggestions] = useState([]);
   const [restaurantSearchLoading, setRestaurantSearchLoading] = useState(false);
   const [restaurantSearchError, setRestaurantSearchError] = useState("");
   const [messages, setMessages] = useState([]);
@@ -204,12 +200,18 @@ export default function App() {
       try {
         const me = await apiGet("/api/users/me");
         if (!cancelled && me?.id) setActivePatientId(me.id);
-      } catch {
-        // /me 404 → no profile linked. Fallback to legacy demo id so
-        // the user at least sees something (rather than a stuck blank
-        // screen). #28 follow-up should expose a "Compte non rattaché"
-        // banner instead.
-        if (!cancelled) setActivePatientId(PATIENT_ID);
+      } catch (error) {
+        // Two failure modes:
+        //  - session expired (refresh already cleared session via the
+        //    unauthorized handler → next render shows the login screen)
+        //  - 404 "Aucun profil rattaché" → fresh signup that never got a
+        //    profile row. Force a clean logout so the user re-signs in
+        //    rather than being silently logged into Karim's account.
+        if (!cancelled) {
+          await clearSession();
+          setSession(null);
+          setActivePatientId(null);
+        }
       }
     })();
     return () => {
@@ -235,22 +237,32 @@ export default function App() {
     setLoading(true);
 
     try {
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData] = await Promise.all([
-        apiGet(`/api/patients/${activePatientId}/profile`),
-        apiGet(`/api/patients/${activePatientId}/feed`),
-        apiGet(`/api/patients/${activePatientId}/progression`),
-        apiGet("/api/restaurants/recommendations"),
-        apiGet(`/api/patients/${activePatientId}/messages`),
-        apiGet(`/api/patients/${activePatientId}/settings`),
-        apiGet("/api/social/groups"),
-        apiGet("/api/challenges/"),
-      ]);
+      const paths = [
+        `/api/patients/${activePatientId}/profile`,
+        `/api/patients/${activePatientId}/feed`,
+        `/api/patients/${activePatientId}/progression`,
+        "/api/restaurants/recommendations",
+        `/api/patients/${activePatientId}/messages`,
+        `/api/patients/${activePatientId}/settings`,
+        "/api/social/groups",
+        "/api/challenges/",
+        `/api/social/suggestions/${activePatientId}`,
+      ];
+      const results = await Promise.allSettled(paths.map((p) => apiGet(p)));
+      const firstReject = results.findIndex((r) => r.status === "rejected");
+      if (firstReject !== -1) {
+        const r = results[firstReject];
+        console.warn(`[loadApp] ${paths[firstReject]} failed:`, r.reason?.message);
+        throw r.reason;
+      }
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData] = results.map((r) => r.value);
 
       setProfile(profileData);
       setFeed(feedData);
       setGroups(groupsData);
       setProgression(progressionData);
       setAvailableChallenges(challengesData);
+      setFriendSuggestions(suggestionsData);
       setRestaurants(restaurantData);
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -266,7 +278,8 @@ export default function App() {
 
       setSessions(await apiGet(`/api/patients/${activePatientId}/sessions`));
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      console.warn("[loadApp] failed:", error?.message, error);
+      Alert.alert("Erreur", error?.message ?? "Échec du chargement");
     } finally {
       setLoading(false);
     }
@@ -658,7 +671,9 @@ export default function App() {
           commentsByPost={commentsByPost}
           feed={feed}
           friendIds={friendIds}
+          friendSuggestions={friendSuggestions}
           likedPosts={likedPosts}
+          isExpert={isExpert}
           onAddComment={addComment}
           onAddFriend={addFriend}
           onCreatePost={createPost}
@@ -722,6 +737,18 @@ export default function App() {
 }
 
 function HomeScreen({ progression, profile, setActiveTab }) {
+  if (!progression || !profile) {
+    return (
+      <ScrollView contentContainerStyle={styles.listContent}>
+        <View style={styles.heroCard}>
+          <Text style={styles.heroKicker}>En attente de données</Text>
+          <Text style={styles.heroText}>
+            Impossible de charger ton tableau de bord. Tire pour rafraîchir ou reconnecte-toi.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
   const nextChallenge = progression.active_challenges[0];
 
   return (
@@ -823,6 +850,7 @@ function ChallengeCard({ challenge }) {
 }
 
 function CommunityScreen({
+  isExpert,
   groups,
   isGroupFormVisible,
   newGroupName,
@@ -844,6 +872,7 @@ function CommunityScreen({
   commentsByPost,
   feed,
   friendIds,
+  friendSuggestions,
   likedPosts,
   onAddComment,
   onAddFriend,
@@ -874,39 +903,48 @@ function CommunityScreen({
             onClearImage={onClearImage}
           />
           <Text style={styles.sectionTitle}>Ajouter des amis</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
-            {suggestedFriends.map((friend) => (
-              <View key={friend.id} style={styles.friendCard}>
-                <Text style={styles.cardTitle}>{friend.name}</Text>
-                <Text style={styles.cardMeta}>{friend.detail}</Text>
-                <Pressable onPress={() => onAddFriend(friend.id)} style={styles.secondaryButton}>
-                  <UserPlus size={16} color="#0f766e" />
-                  <Text style={styles.secondaryButtonText}>{friendIds.has(friend.id) ? "Ajoute" : "Ajouter"}</Text>
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
+          {friendSuggestions.length === 0 ? (
+            <Text style={styles.cardMeta}>Aucune suggestion pour le moment.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
+              {friendSuggestions.map((friend) => (
+                <View key={friend.id} style={styles.friendCard}>
+                  <Text style={styles.cardTitle}>{friend.name}</Text>
+                  <Text style={styles.cardMeta}>{friend.detail}</Text>
+                  <Pressable onPress={() => onAddFriend(friend.id)} style={styles.secondaryButton}>
+                    <UserPlus size={16} color="#0f766e" />
+                    <Text style={styles.secondaryButtonText}>{friendIds.has(friend.id) ? "Ajouté" : "Ajouter"}</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          )}
 
           <Text style={styles.sectionTitle}>Groupes de soutien</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
-            <View style={styles.friendCard}>
-              <Pressable onPress={() => setIsGroupFormVisible(true)} style={[styles.secondaryButton, {height: '100%', justifyContent: 'center', backgroundColor: '#f8fafc', borderColor: '#cbd5e1', borderWidth: 1, borderStyle: 'dashed'}]}>
-                <Plus size={24} color="#0f766e" />
-                <Text style={[styles.secondaryButtonText, {marginTop: 8, fontSize: 13, color: '#475569'}]}>Créer un groupe</Text>
-              </Pressable>
-            </View>
+            {isExpert && (
+              <View style={[styles.friendCard, styles.groupCard]}>
+                <Pressable onPress={() => setIsGroupFormVisible(true)} style={[styles.secondaryButton, {flex: 1, justifyContent: 'center', backgroundColor: '#f8fafc', borderColor: '#cbd5e1', borderWidth: 1, borderStyle: 'dashed'}]}>
+                  <Plus size={24} color="#0f766e" />
+                  <Text style={[styles.secondaryButtonText, {marginTop: 8, fontSize: 13, color: '#475569'}]}>Créer un groupe</Text>
+                </Pressable>
+              </View>
+            )}
             {groups.map((group) => (
-              <View key={group.id} style={styles.friendCard}>
-                <Text style={styles.cardTitle}>{group.name}</Text>
+              <View key={group.id} style={[styles.friendCard, styles.groupCard]}>
+                <Text style={styles.cardTitle} numberOfLines={1}>{group.name}</Text>
                 <Text style={styles.cardMeta}>{group.category === "walking" ? "Marche" : group.category === "cooking" ? "Cuisine" : group.category === "support" ? "Soutien" : "Général"} · {group.member_count} membre(s)</Text>
-                <Text style={styles.cardBody} numberOfLines={2}>{group.description}</Text>
+                <Text style={styles.cardBody} numberOfLines={3}>{group.description}</Text>
+                <View style={{flex: 1}} />
                 <Pressable onPress={() => onJoinGroup(group.id)} style={[styles.primaryButton, {marginTop: 10}]}>
                   <Text style={styles.primaryButtonText}>Rejoindre</Text>
                 </Pressable>
-                <Pressable onPress={() => setChallengeGroupTarget(group.id)} style={[styles.secondaryButton, {marginTop: 8}]}>
-                  <Target size={16} color="#0f766e" />
-                  <Text style={styles.secondaryButtonText}>Lancer un défi</Text>
-                </Pressable>
+                {isExpert && (
+                  <Pressable onPress={() => setChallengeGroupTarget(group.id)} style={[styles.secondaryButton, {marginTop: 8}]}>
+                    <Target size={16} color="#0f766e" />
+                    <Text style={styles.secondaryButtonText}>Lancer un défi</Text>
+                  </Pressable>
+                )}
               </View>
             ))}
           </ScrollView>
@@ -2031,6 +2069,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#ffffff",
     padding: 14,
+  },
+  groupCard: {
+    minHeight: 200,
   },
   actionRow: {
     flexDirection: "row",

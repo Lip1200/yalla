@@ -72,7 +72,8 @@ export async function apiGet(path) {
   const response = await fetchWithRetry(`${API_BASE_URL}${path}`, {});
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? "Impossible de charger les données.");
+    console.warn(`[apiGet] ${path} -> ${response.status}`, body);
+    throw new Error(body.detail ?? `Impossible de charger les données (${response.status}).`);
   }
   return response.json();
 }

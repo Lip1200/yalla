@@ -12,9 +12,10 @@
  *
  * Props:
  *   patientId         — int, required
- *   apiBaseUrl        — string, defaults to EXPO_PUBLIC_API_BASE_URL
- *   authToken         — string, defaults to "yalla-secret-token" (service token)
  *   onPress?          — optional handler when a badge is tapped
+ *
+ * Uses the shared `services/api.js#apiGet` which carries the logged-in
+ * patient's bearer token and handles the refresh-on-401 dance.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -27,19 +28,7 @@ import {
 } from "react-native";
 import { Trophy } from "lucide-react-native";
 
-const FALLBACK_API_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.18:8001";
-const FALLBACK_TOKEN = "yalla-secret-token";
-
-async function fetchJson(path, token, apiBaseUrl) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return response.json();
-}
+import { apiGet } from "../services/api";
 
 function criterionLabel(badge) {
   const kind = badge?.criteria_kind;
@@ -51,12 +40,7 @@ function criterionLabel(badge) {
   return "À débloquer";
 }
 
-export default function BadgesSection({
-  patientId,
-  apiBaseUrl = FALLBACK_API_URL,
-  authToken = FALLBACK_TOKEN,
-  onPress,
-}) {
+export default function BadgesSection({ patientId, onPress }) {
   const [catalogue, setCatalogue] = useState([]);
   const [earned, setEarned] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,12 +53,8 @@ export default function BadgesSection({
       setError("");
       try {
         const [allBadges, patientBadges] = await Promise.all([
-          fetchJson("/api/challenges/badges", authToken, apiBaseUrl),
-          fetchJson(
-            `/api/challenges/badges/patient/${patientId}`,
-            authToken,
-            apiBaseUrl,
-          ),
+          apiGet("/api/challenges/badges"),
+          apiGet(`/api/challenges/badges/patient/${patientId}`),
         ]);
         if (cancelled) return;
         setCatalogue(allBadges ?? []);
@@ -90,7 +70,7 @@ export default function BadgesSection({
     return () => {
       cancelled = true;
     };
-  }, [patientId, apiBaseUrl, authToken]);
+  }, [patientId]);
 
   const items = useMemo(() => {
     const earnedById = new Map(
