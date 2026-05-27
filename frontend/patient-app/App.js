@@ -110,6 +110,8 @@ export default function App() {
   const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
   const [friendIds, setFriendIds] = useState(new Set());
   const [friendsList, setFriendsList] = useState([]);
+  const [pendingSentIds, setPendingSentIds] = useState(new Set());
+  const [friendRequests, setFriendRequests] = useState([]);
   const [isNewConvModalVisible, setIsNewConvModalVisible] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionKind, setSessionKind] = useState("group");
@@ -250,6 +252,7 @@ export default function App() {
         "/api/challenges/",
         `/api/social/suggestions/${activePatientId}`,
         `/api/social/friends/${activePatientId}`,
+        `/api/social/friends/${activePatientId}/requests`,
       ];
       const results = await Promise.allSettled(paths.map((p) => apiGet(p)));
       const firstReject = results.findIndex((r) => r.status === "rejected");
@@ -258,7 +261,7 @@ export default function App() {
         console.warn(`[loadApp] ${paths[firstReject]} failed:`, r.reason?.message);
         throw r.reason;
       }
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData] = results.map((r) => r.value);
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData, requestsData] = results.map((r) => r.value);
 
       setProfile(profileData);
       setFeed(feedData);
@@ -268,6 +271,8 @@ export default function App() {
       setFriendSuggestions(suggestionsData);
       setRestaurants(restaurantData);
       setFriendsList(friendsData ?? []);
+      setFriendRequests(requestsData ?? []);
+      setPendingSentIds(new Set());
       setFriendIds(new Set((friendsData ?? []).map((f) => f.id)));
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -515,11 +520,42 @@ export default function App() {
   async function addFriend(friendId) {
     try {
       const newFriend = await apiPost(`/api/social/friends/${activePatientId}`, { friend_id: friendId });
-      setFriendIds((current) => new Set(current).add(friendId));
-      setFriendsList((current) => (current.some((f) => f.id === friendId) ? current : [newFriend, ...current]));
+      if (newFriend.status === "accepted") {
+        setFriendIds((current) => new Set(current).add(friendId));
+        setFriendsList((current) => (current.some((f) => f.id === friendId) ? current : [newFriend, ...current]));
+      } else {
+        // 'pending' — the receiver still has to accept. Mark locally so the
+        // 'Ajouter' button shows 'Demandé' and the suggestion stops appearing.
+        setPendingSentIds((current) => new Set(current).add(friendId));
+        Alert.alert("Demande envoyée", `${newFriend.name} doit accepter avant que la connexion soit active.`);
+      }
     } catch (error) {
-      Alert.alert("Ami non ajouté", error.message);
+      Alert.alert("Demande échouée", error.message);
     }
+  }
+
+  async function acceptFriendRequest(requesterId) {
+    try {
+      const newFriend = await apiPost(
+        `/api/social/friends/${activePatientId}/requests/${requesterId}/accept`,
+        {},
+      );
+      setFriendIds((current) => new Set(current).add(requesterId));
+      setFriendsList((current) => (current.some((f) => f.id === requesterId) ? current : [newFriend, ...current]));
+      setFriendRequests((current) => current.filter((r) => r.requester_id !== requesterId));
+    } catch (error) {
+      Alert.alert("Acceptation échouée", error.message);
+    }
+  }
+
+  async function rejectFriendRequest(requesterId) {
+    try {
+      await apiPost(`/api/social/friends/${activePatientId}/requests/${requesterId}/reject`, {});
+    } catch (error) {
+      Alert.alert("Rejet échoué", error.message);
+      return;
+    }
+    setFriendRequests((current) => current.filter((r) => r.requester_id !== requesterId));
   }
 
   async function startConversationWith(friendId) {
@@ -695,14 +731,18 @@ export default function App() {
           commentsByPost={commentsByPost}
           feed={feed}
           friendIds={friendIds}
+          friendRequests={friendRequests}
           friendSuggestions={friendSuggestions}
           isExpert={isExpert}
           likedPosts={likedPosts}
+          onAcceptFriend={acceptFriendRequest}
           onAddComment={addComment}
           onAddFriend={addFriend}
           onCreatePost={createPost}
           onJoinGroup={joinGroup}
+          onRejectFriend={rejectFriendRequest}
           onToggleLike={toggleLike}
+          pendingSentIds={pendingSentIds}
           postContent={postContent}
           postType={postType}
           setCommentInputs={setCommentInputs}
@@ -900,8 +940,12 @@ function CommunityScreen({
   commentsByPost,
   feed,
   friendIds,
+  friendRequests,
   friendSuggestions,
   likedPosts,
+  onAcceptFriend,
+  onRejectFriend,
+  pendingSentIds,
   onAddComment,
   onAddFriend,
   onCreatePost,
@@ -930,21 +974,58 @@ function CommunityScreen({
             onPickImage={onPickImage}
             onClearImage={onClearImage}
           />
+          {friendRequests.length > 0 ? (
+            <>
+              <Text style={styles.sectionTitle}>Demandes reçues</Text>
+              {friendRequests.map((req) => (
+                <View key={req.requester_id} style={[styles.card, {marginBottom: 8}]}>
+                  <Text style={styles.cardTitle}>{req.requester_name}</Text>
+                  {req.primary_goal ? (
+                    <Text style={styles.cardMeta}>{req.primary_goal}</Text>
+                  ) : null}
+                  <View style={{flexDirection: "row", gap: 8, marginTop: 10}}>
+                    <Pressable
+                      onPress={() => onAcceptFriend(req.requester_id)}
+                      style={[styles.primaryButton, {flex: 1}]}
+                    >
+                      <Text style={styles.primaryButtonText}>Accepter</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onRejectFriend(req.requester_id)}
+                      style={[styles.secondaryButton, {flex: 1}]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Refuser</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </>
+          ) : null}
+
           <Text style={styles.sectionTitle}>Ajouter des amis</Text>
           {friendSuggestions.length === 0 ? (
             <Text style={styles.cardMeta}>Aucune suggestion pour le moment.</Text>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
-              {friendSuggestions.map((friend) => (
-                <View key={friend.id} style={styles.friendCard}>
-                  <Text style={styles.cardTitle}>{friend.name}</Text>
-                  <Text style={styles.cardMeta}>{friend.detail}</Text>
-                  <Pressable onPress={() => onAddFriend(friend.id)} style={styles.secondaryButton}>
-                    <UserPlus size={16} color="#0f766e" />
-                    <Text style={styles.secondaryButtonText}>{friendIds.has(friend.id) ? "Ajouté" : "Ajouter"}</Text>
-                  </Pressable>
-                </View>
-              ))}
+              {friendSuggestions.map((friend) => {
+                const isFriend = friendIds.has(friend.id);
+                const isPending = pendingSentIds.has(friend.id);
+                const label = isFriend ? "Ami" : isPending ? "Demandé" : "Ajouter";
+                return (
+                  <View key={friend.id} style={styles.friendCard}>
+                    <Text style={styles.cardTitle}>{friend.name}</Text>
+                    <Text style={styles.cardMeta}>{friend.detail}</Text>
+                    <Pressable
+                      onPress={() => onAddFriend(friend.id)}
+                      style={styles.secondaryButton}
+                      disabled={isFriend || isPending}
+                    >
+                      <UserPlus size={16} color="#0f766e" />
+                      <Text style={styles.secondaryButtonText}>{label}</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </ScrollView>
           )}
 
