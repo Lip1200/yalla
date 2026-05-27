@@ -56,12 +56,6 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.1
 const PATIENT_ID = 101;
 const EXPERT_PATIENT_ID = 102;
 
-const suggestedFriends = [
-  { id: 301, name: "Nadia Benali", detail: "Marche douce, 4 défis terminés" },
-  { id: 302, name: "Youssef Haddad", detail: "Cuisine maison, nouveau dans le groupe" },
-  { id: 303, name: "Sara Amrani", detail: "Objectif régularité, active cette semaine" },
-];
-
 export default function App() {
   const [fontsLoaded] = useFonts({
     Outfit_400Regular,
@@ -94,6 +88,7 @@ export default function App() {
   const [progression, setProgression] = useState(null);
   const [availableChallenges, setAvailableChallenges] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
+  const [friendSuggestions, setFriendSuggestions] = useState([]);
   const [restaurantSearchLoading, setRestaurantSearchLoading] = useState(false);
   const [restaurantSearchError, setRestaurantSearchError] = useState("");
   const [messages, setMessages] = useState([]);
@@ -235,7 +230,7 @@ export default function App() {
     setLoading(true);
 
     try {
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData] = await Promise.all([
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData] = await Promise.all([
         apiGet(`/api/patients/${activePatientId}/profile`),
         apiGet(`/api/patients/${activePatientId}/feed`),
         apiGet(`/api/patients/${activePatientId}/progression`),
@@ -244,6 +239,7 @@ export default function App() {
         apiGet(`/api/patients/${activePatientId}/settings`),
         apiGet("/api/social/groups"),
         apiGet("/api/challenges/"),
+        apiGet(`/api/social/suggestions/${activePatientId}`),
       ]);
 
       setProfile(profileData);
@@ -251,6 +247,7 @@ export default function App() {
       setGroups(groupsData);
       setProgression(progressionData);
       setAvailableChallenges(challengesData);
+      setFriendSuggestions(suggestionsData);
       setRestaurants(restaurantData);
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -658,6 +655,7 @@ export default function App() {
           commentsByPost={commentsByPost}
           feed={feed}
           friendIds={friendIds}
+          friendSuggestions={friendSuggestions}
           likedPosts={likedPosts}
           onAddComment={addComment}
           onAddFriend={addFriend}
@@ -844,6 +842,7 @@ function CommunityScreen({
   commentsByPost,
   feed,
   friendIds,
+  friendSuggestions,
   likedPosts,
   onAddComment,
   onAddFriend,
@@ -874,18 +873,22 @@ function CommunityScreen({
             onClearImage={onClearImage}
           />
           <Text style={styles.sectionTitle}>Ajouter des amis</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
-            {suggestedFriends.map((friend) => (
-              <View key={friend.id} style={styles.friendCard}>
-                <Text style={styles.cardTitle}>{friend.name}</Text>
-                <Text style={styles.cardMeta}>{friend.detail}</Text>
-                <Pressable onPress={() => onAddFriend(friend.id)} style={styles.secondaryButton}>
-                  <UserPlus size={16} color="#0f766e" />
-                  <Text style={styles.secondaryButtonText}>{friendIds.has(friend.id) ? "Ajoute" : "Ajouter"}</Text>
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
+          {friendSuggestions.length === 0 ? (
+            <Text style={styles.cardMeta}>Aucune suggestion pour le moment.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
+              {friendSuggestions.map((friend) => (
+                <View key={friend.id} style={styles.friendCard}>
+                  <Text style={styles.cardTitle}>{friend.name}</Text>
+                  <Text style={styles.cardMeta}>{friend.detail}</Text>
+                  <Pressable onPress={() => onAddFriend(friend.id)} style={styles.secondaryButton}>
+                    <UserPlus size={16} color="#0f766e" />
+                    <Text style={styles.secondaryButtonText}>{friendIds.has(friend.id) ? "Ajouté" : "Ajouter"}</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          )}
 
           <Text style={styles.sectionTitle}>Groupes de soutien</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>

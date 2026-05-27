@@ -4,6 +4,7 @@ from src.core.security import AuthIdentity, get_current_user, get_profile_for_id
 from src.modules.social.schemas import (
     FeedPost,
     FeedPostCreate,
+    FriendSuggestion,
     Group,
     GroupCategory,
     GroupCreate,
@@ -20,6 +21,7 @@ from src.modules.social.service import (
     join_group,
     leave_group,
     list_feed,
+    list_friend_suggestions,
     list_groups,
     list_members,
     remove_support,
@@ -113,3 +115,8 @@ def leave_group_route(group_id: int, user_id: int):
 @router.get("/groups/{group_id}/members", response_model=list[GroupMember])
 def read_members(group_id: int):
     return list_members(group_id)
+
+
+@router.get("/suggestions/{patient_id}", response_model=list[FriendSuggestion])
+def read_friend_suggestions(patient_id: int, limit: int = Query(default=10, ge=1, le=50)):
+    return list_friend_suggestions(patient_id, limit=limit)

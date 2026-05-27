@@ -82,3 +82,14 @@ class GroupDetail(Group):
 
 class GroupJoinRequest(BaseModel):
     user_id: int
+
+
+class FriendSuggestion(BaseModel):
+    """Lightweight profile shown in the patient-app 'Ajouter des amis'
+    carousel. Pulled from `profiles` (any role ∈ patient, expert_patient)
+    minus the requester themself."""
+
+    id: int
+    name: str
+    detail: str
+    role: AppRole

@@ -7,6 +7,7 @@ from src.modules.social.schemas import (
     AppRole,
     FeedPost,
     FeedPostCreate,
+    FriendSuggestion,
     Group,
     GroupCategory,
     GroupCreate,
@@ -337,3 +338,39 @@ def _row_to_group(row: dict, member_count_override: int | None = None) -> Group:
         member_count=member_count,
         created_at=created_at,
     )
+
+
+def list_friend_suggestions(
+    requester_id: int, limit: int = 10
+) -> list[FriendSuggestion]:
+    """Return other patient / expert_patient profiles the requester could add.
+    Excludes the requester. Doctors are filtered out — they don't show up
+    in the patient-app social discovery feed."""
+    response = (
+        supabase_client.table(PROFILES_TABLE)
+        .select("id, full_name, role, primary_goal, status")
+        .in_("role", ["patient", "expert_patient"])
+        .neq("id", requester_id)
+        .order("id")
+        .limit(limit)
+        .execute()
+    )
+    suggestions: list[FriendSuggestion] = []
+    for row in response.data or []:
+        role_value = row.get("role") or "patient"
+        try:
+            role = AppRole(role_value)
+        except ValueError:
+            role = AppRole.PATIENT
+        detail = (row.get("primary_goal") or row.get("status") or "").strip()
+        if not detail:
+            detail = "Patient Yalla" if role == AppRole.PATIENT else "Patient expert"
+        suggestions.append(
+            FriendSuggestion(
+                id=row["id"],
+                name=row.get("full_name") or "Profil Yalla",
+                detail=detail,
+                role=role,
+            )
+        )
+    return suggestions
