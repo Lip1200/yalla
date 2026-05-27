@@ -78,6 +78,15 @@ def _do_signup(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Inscription échouée : {exc}",
         ) from exc
+    finally:
+        # supabase-py's auth.sign_up sets the postgrest client's bearer to
+        # the freshly-created user's JWT, which would make the subsequent
+        # profile-row insert in _ensure_profile_for_auth_user run under
+        # the new user's identity (subject to RLS) instead of the
+        # service-role key. Restore the service-role bearer so the
+        # insert succeeds. Same fix as get_current_user (#55 incident).
+        from src.core.config import settings as _settings
+        supabase_client.postgrest.auth(_settings.supabase_key)
 
     if response.user is None:
         raise HTTPException(
@@ -295,6 +304,12 @@ def login(payload: LoginRequest) -> AuthSession:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Identifiants invalides.",
         ) from exc
+    finally:
+        # Restore the service-role bearer the same way get_current_user does
+        # — sign_in_with_password mutates postgrest's auth state in
+        # supabase-py 2.30.
+        from src.core.config import settings as _settings
+        supabase_client.postgrest.auth(_settings.supabase_key)
 
     if response.user is None or response.session is None:
         raise HTTPException(
@@ -306,6 +321,7 @@ def login(payload: LoginRequest) -> AuthSession:
 
 
 def refresh(payload: RefreshRequest) -> AuthSession:
+    from src.core.config import settings as _settings
     try:
         response = supabase_client.auth.refresh_session(payload.refresh_token)
     except Exception as exc:
@@ -313,6 +329,9 @@ def refresh(payload: RefreshRequest) -> AuthSession:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token invalide.",
         ) from exc
+    finally:
+        # Same fix as login/sign_up — restore service-role bearer.
+        supabase_client.postgrest.auth(_settings.supabase_key)
 
     if response.user is None or response.session is None:
         raise HTTPException(
