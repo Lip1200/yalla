@@ -8,6 +8,7 @@ from src.modules.social.schemas import (
     FeedPost,
     FeedPostCreate,
     Friend,
+    FriendRequest,
     FriendSuggestion,
     Group,
     GroupCategory,
@@ -345,19 +346,40 @@ def list_friend_suggestions(
     requester_id: int, limit: int = 10
 ) -> list[FriendSuggestion]:
     """Return other patient / expert_patient profiles the requester could add.
-    Excludes the requester. Doctors are filtered out — they don't show up
-    in the patient-app social discovery feed."""
-    response = (
+    Excludes the requester themself, doctors, and anyone already linked
+    via patient_friends in either direction (pending or accepted)."""
+    linked_out = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("friend_id")
+        .eq("patient_id", requester_id)
+        .execute()
+    )
+    linked_in = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("patient_id")
+        .eq("friend_id", requester_id)
+        .execute()
+    )
+    excluded_ids = {requester_id}
+    for row in linked_out.data or []:
+        excluded_ids.add(row["friend_id"])
+    for row in linked_in.data or []:
+        excluded_ids.add(row["patient_id"])
+
+    query = (
         supabase_client.table(PROFILES_TABLE)
         .select("id, full_name, role, primary_goal, status")
         .in_("role", ["patient", "expert_patient"])
-        .neq("id", requester_id)
         .order("id")
-        .limit(limit)
-        .execute()
+        .limit(limit + len(excluded_ids))  # over-fetch so filtering below still hits `limit`
     )
+    response = query.execute()
     suggestions: list[FriendSuggestion] = []
     for row in response.data or []:
+        if row["id"] in excluded_ids:
+            continue
+        if len(suggestions) >= limit:
+            break
         role_value = row.get("role") or "patient"
         try:
             role = AppRole(role_value)
@@ -380,22 +402,96 @@ def list_friend_suggestions(
 FRIENDS_TABLE = "patient_friends"
 
 
+def _parse_created_at(value) -> datetime:
+    return (
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if isinstance(value, str)
+        else value or datetime.now()
+    )
+
+
+def _role_from_raw(raw) -> AppRole:
+    try:
+        return AppRole(raw or "patient")
+    except ValueError:
+        return AppRole.PATIENT
+
+
 def list_friends(patient_id: int) -> list[Friend]:
-    """Return profiles that `patient_id` has added as friends. Sorted by
-    most recently added first. Excludes deleted profiles (the FK cascade
-    on delete will have already removed those rows)."""
+    """Return profiles accepted as friends by the patient, looking in both
+    directions (rows where patient is requester OR receiver, status='accepted').
+    Sorted by most recently linked first."""
+    _get_profile_or_404(patient_id)
+    rows_out = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("friend_id, created_at")
+        .eq("patient_id", patient_id)
+        .eq("status", "accepted")
+        .execute()
+    )
+    rows_in = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("patient_id, created_at")
+        .eq("friend_id", patient_id)
+        .eq("status", "accepted")
+        .execute()
+    )
+    pairs: list[tuple[int, str | None]] = []
+    for row in rows_out.data or []:
+        pairs.append((row["friend_id"], row.get("created_at")))
+    for row in rows_in.data or []:
+        pairs.append((row["patient_id"], row.get("created_at")))
+    if not pairs:
+        return []
+
+    pairs.sort(key=lambda p: p[1] or "", reverse=True)
+    ids = sorted({pair[0] for pair in pairs})
+    profiles_resp = (
+        supabase_client.table(PROFILES_TABLE)
+        .select("id, full_name, role, primary_goal")
+        .in_("id", ids)
+        .execute()
+    )
+    profiles = {row["id"]: row for row in (profiles_resp.data or [])}
+
+    result: list[Friend] = []
+    seen: set[int] = set()
+    for friend_id, created_raw in pairs:
+        if friend_id in seen:
+            continue
+        seen.add(friend_id)
+        profile = profiles.get(friend_id)
+        if profile is None:
+            continue
+        result.append(
+            Friend(
+                id=profile["id"],
+                name=profile.get("full_name") or "Profil Yalla",
+                role=_role_from_raw(profile.get("role")),
+                primary_goal=profile.get("primary_goal") or "",
+                created_at=_parse_created_at(created_raw),
+                status="accepted",
+            )
+        )
+    return result
+
+
+def list_sent_friend_requests(patient_id: int) -> list[Friend]:
+    """Pending requests `patient_id` has SENT but the receiver hasn't
+    accepted yet. Used by the patient-app to show 'Demande envoyée'
+    status and let the user cancel if they want."""
     _get_profile_or_404(patient_id)
     rows = (
         supabase_client.table(FRIENDS_TABLE)
         .select("friend_id, created_at")
         .eq("patient_id", patient_id)
+        .eq("status", "pending")
         .order("created_at", desc=True)
         .execute()
     )
     friend_ids = [row["friend_id"] for row in (rows.data or [])]
     if not friend_ids:
         return []
-
     profiles_resp = (
         supabase_client.table(PROFILES_TABLE)
         .select("id, full_name, role, primary_goal")
@@ -403,38 +499,71 @@ def list_friends(patient_id: int) -> list[Friend]:
         .execute()
     )
     profiles = {row["id"]: row for row in (profiles_resp.data or [])}
-
     result: list[Friend] = []
     for row in rows.data or []:
         profile = profiles.get(row["friend_id"])
         if profile is None:
             continue
-        raw_role = profile.get("role") or "patient"
-        try:
-            role = AppRole(raw_role)
-        except ValueError:
-            role = AppRole.PATIENT
-        created_raw = row.get("created_at")
-        created_at = (
-            datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
-            if isinstance(created_raw, str)
-            else created_raw or datetime.now()
-        )
         result.append(
             Friend(
                 id=profile["id"],
                 name=profile.get("full_name") or "Profil Yalla",
-                role=role,
+                role=_role_from_raw(profile.get("role")),
                 primary_goal=profile.get("primary_goal") or "",
-                created_at=created_at,
+                created_at=_parse_created_at(row.get("created_at")),
+                status="pending",
+            )
+        )
+    return result
+
+
+def list_friend_requests(patient_id: int) -> list[FriendRequest]:
+    """Pending requests that `patient_id` has received and hasn't yet
+    accepted or rejected. Used by the patient-app to render the
+    'Demandes reçues' section."""
+    _get_profile_or_404(patient_id)
+    rows = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("patient_id, created_at")
+        .eq("friend_id", patient_id)
+        .eq("status", "pending")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    requester_ids = [row["patient_id"] for row in (rows.data or [])]
+    if not requester_ids:
+        return []
+
+    profiles_resp = (
+        supabase_client.table(PROFILES_TABLE)
+        .select("id, full_name, role, primary_goal")
+        .in_("id", requester_ids)
+        .execute()
+    )
+    profiles = {row["id"]: row for row in (profiles_resp.data or [])}
+
+    result: list[FriendRequest] = []
+    for row in rows.data or []:
+        profile = profiles.get(row["patient_id"])
+        if profile is None:
+            continue
+        result.append(
+            FriendRequest(
+                requester_id=profile["id"],
+                requester_name=profile.get("full_name") or "Profil Yalla",
+                requester_role=_role_from_raw(profile.get("role")),
+                primary_goal=profile.get("primary_goal") or "",
+                created_at=_parse_created_at(row.get("created_at")),
             )
         )
     return result
 
 
 def add_friend(patient_id: int, friend_id: int) -> Friend:
-    """Persist a directed friendship: patient_id added friend_id. Idempotent
-    — re-adding returns the existing relationship instead of raising."""
+    """Send a friend request. Creates a row (patient_id → friend_id) with
+    status='pending'. Idempotent — returns the existing row's status if
+    one already exists in either direction (so the requester sees the
+    same state as the friend list)."""
     if patient_id == friend_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -445,33 +574,91 @@ def add_friend(patient_id: int, friend_id: int) -> Friend:
 
     existing = (
         supabase_client.table(FRIENDS_TABLE)
-        .select("patient_id, created_at")
+        .select("status, created_at")
         .eq("patient_id", patient_id)
         .eq("friend_id", friend_id)
         .limit(1)
         .execute()
     )
-    if not existing.data:
-        supabase_client.table(FRIENDS_TABLE).insert(
-            {"patient_id": patient_id, "friend_id": friend_id}
-        ).execute()
+    if existing.data:
+        row = existing.data[0]
+    else:
+        reverse = (
+            supabase_client.table(FRIENDS_TABLE)
+            .select("status, created_at")
+            .eq("patient_id", friend_id)
+            .eq("friend_id", patient_id)
+            .limit(1)
+            .execute()
+        )
+        if reverse.data:
+            row = reverse.data[0]
+        else:
+            inserted = (
+                supabase_client.table(FRIENDS_TABLE)
+                .insert(
+                    {"patient_id": patient_id, "friend_id": friend_id, "status": "pending"}
+                )
+                .execute()
+            )
+            row = inserted.data[0] if inserted.data else {"status": "pending"}
 
-    # Return the Friend summary so the frontend can update its state without
-    # a second round-trip.
-    friends = list_friends(patient_id)
-    for friend in friends:
-        if friend.id == friend_id:
-            return friend
-    # Defensive: should never hit if the insert succeeded.
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Ami ajouté mais non retrouvé.",
+    return Friend(
+        id=friend_profile["id"],
+        name=friend_profile.get("full_name") or "Profil Yalla",
+        role=_role_from_raw(friend_profile.get("role")),
+        primary_goal=friend_profile.get("primary_goal") or "",
+        created_at=_parse_created_at(row.get("created_at")),
+        status=row.get("status") or "pending",
     )
 
 
+def accept_friend_request(receiver_id: int, requester_id: int) -> Friend:
+    """Accept the pending request requester_id → receiver_id. The row's
+    status flips to 'accepted'. Both sides will then see each other in
+    list_friends."""
+    _get_profile_or_404(receiver_id)
+    requester_profile = _get_profile_or_404(requester_id)
+
+    response = (
+        supabase_client.table(FRIENDS_TABLE)
+        .update({"status": "accepted"})
+        .eq("patient_id", requester_id)
+        .eq("friend_id", receiver_id)
+        .eq("status", "pending")
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Demande d'amitié introuvable.",
+        )
+    return Friend(
+        id=requester_profile["id"],
+        name=requester_profile.get("full_name") or "Profil Yalla",
+        role=_role_from_raw(requester_profile.get("role")),
+        primary_goal=requester_profile.get("primary_goal") or "",
+        created_at=_parse_created_at(response.data[0].get("created_at")),
+        status="accepted",
+    )
+
+
+def reject_friend_request(receiver_id: int, requester_id: int) -> None:
+    """Reject the pending request — deletes the row so the requester can
+    re-try later. No-op if no pending row exists."""
+    _get_profile_or_404(receiver_id)
+    supabase_client.table(FRIENDS_TABLE).delete().eq(
+        "patient_id", requester_id
+    ).eq("friend_id", receiver_id).eq("status", "pending").execute()
+
+
 def remove_friend(patient_id: int, friend_id: int) -> None:
-    """Drop the directed friendship row. No-op if it didn't exist."""
+    """Drop the friendship row in either direction. No-op if neither
+    exists. Use for both 'cancel pending request' and 'unfriend'."""
     _get_profile_or_404(patient_id)
     supabase_client.table(FRIENDS_TABLE).delete().eq(
         "patient_id", patient_id
     ).eq("friend_id", friend_id).execute()
+    supabase_client.table(FRIENDS_TABLE).delete().eq(
+        "patient_id", friend_id
+    ).eq("friend_id", patient_id).execute()

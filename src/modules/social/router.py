@@ -6,6 +6,7 @@ from src.modules.social.schemas import (
     FeedPostCreate,
     Friend,
     FriendCreate,
+    FriendRequest,
     FriendSuggestion,
     Group,
     GroupCategory,
@@ -16,6 +17,7 @@ from src.modules.social.schemas import (
     SupportResponse,
 )
 from src.modules.social.service import (
+    accept_friend_request,
     add_friend,
     add_support,
     create_group,
@@ -24,10 +26,13 @@ from src.modules.social.service import (
     join_group,
     leave_group,
     list_feed,
+    list_friend_requests,
     list_friend_suggestions,
     list_friends,
+    list_sent_friend_requests,
     list_groups,
     list_members,
+    reject_friend_request,
     remove_friend,
     remove_support,
 )
@@ -140,3 +145,29 @@ def add_friend_route(patient_id: int, payload: FriendCreate):
 @router.delete("/friends/{patient_id}/{friend_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_friend_route(patient_id: int, friend_id: int):
     remove_friend(patient_id, friend_id)
+
+
+@router.get("/friends/{patient_id}/requests", response_model=list[FriendRequest])
+def read_friend_requests(patient_id: int):
+    return list_friend_requests(patient_id)
+
+
+@router.get("/friends/{patient_id}/sent", response_model=list[Friend])
+def read_sent_requests(patient_id: int):
+    return list_sent_friend_requests(patient_id)
+
+
+@router.post(
+    "/friends/{patient_id}/requests/{requester_id}/accept",
+    response_model=Friend,
+)
+def accept_friend(patient_id: int, requester_id: int):
+    return accept_friend_request(patient_id, requester_id)
+
+
+@router.post(
+    "/friends/{patient_id}/requests/{requester_id}/reject",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def reject_friend(patient_id: int, requester_id: int):
+    reject_friend_request(patient_id, requester_id)

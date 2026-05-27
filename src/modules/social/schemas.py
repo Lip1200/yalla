@@ -96,12 +96,25 @@ class FriendSuggestion(BaseModel):
 
 
 class Friend(BaseModel):
-    """A profile that the requester has explicitly added to their friends
-    list. Returned by GET /api/social/friends/{patient_id}."""
+    """A profile linked to the requester via a friendship row. Returned
+    by GET /api/social/friends/{patient_id} (only accepted rows) and by
+    POST /api/social/friends/{patient_id} (which may be 'pending')."""
 
     id: int
     name: str
     role: AppRole
+    primary_goal: str = ""
+    created_at: datetime
+    status: str = "accepted"
+
+
+class FriendRequest(BaseModel):
+    """A pending request the receiver can accept or reject. Returned by
+    GET /api/social/friends/{patient_id}/requests."""
+
+    requester_id: int
+    requester_name: str
+    requester_role: AppRole
     primary_goal: str = ""
     created_at: datetime
 

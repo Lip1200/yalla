@@ -91,4 +91,28 @@ export async function apiPost(path, payload) {
   return response.json();
 }
 
+export async function apiPatch(path, payload) {
+  const response = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? "Action impossible.");
+  }
+  return response.json();
+}
+
+export async function apiDeleteVerb(path) {
+  const response = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 204) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? "Action impossible.");
+  }
+  return null;
+}
+
 export { API_BASE_URL };

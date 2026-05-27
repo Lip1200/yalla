@@ -361,9 +361,23 @@ def _to_summary(patient: PatientDetail) -> PatientSummary:
 
 
 def _apply_privacy_rules(patient: PatientDetail) -> PatientDetail:
+    """Hide self-tracked / lifestyle data when the patient activates the
+    'Données privées' mode. The doctor keeps access to clinically relevant
+    fields: identity, age, primary_goal, last_check_in, health_metrics
+    (HbA1c, IMC, glycémie), evolution (historical medical chart) and their
+    own doctor_notes. What gets hidden: activity tracker minutes,
+    challenge progress / completion rates, active challenges list and
+    patient-authored care_notes — the kind of self-tracking info the
+    patient may want to keep private from the care team."""
     if patient.privacy_level != "Données privées":
         return patient
 
+    masked_evolution = [
+        point.model_copy(
+            update={"weekly_activity_minutes": 0, "challenge_completion_rate": 0}
+        )
+        for point in patient.evolution
+    ]
     return patient.model_copy(
         update={
             "progress": patient.progress.model_copy(
@@ -371,13 +385,15 @@ def _apply_privacy_rules(patient: PatientDetail) -> PatientDetail:
                     "activity_completion_rate": 0,
                     "challenge_completion_rate": 0,
                     "weekly_activity_minutes": 0,
+                    "status": "Mode privé",
                 },
             ),
-            "evolution": [],
+            "evolution": masked_evolution,
             "active_challenges": [],
             "care_notes": [
                 "Le patient a activé le mode données privées.",
-                "Seules les données issues de la dernière consultation sont visibles.",
+                "Les données de suivi (activité, défis) sont masquées. "
+                "Les indicateurs médicaux restent visibles.",
             ],
         },
     )

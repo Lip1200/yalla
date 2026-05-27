@@ -39,9 +39,10 @@ import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 
 import LoginScreen from "./components/LoginScreen";
+import OnboardingScreen from "./components/OnboardingScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
-import { getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
+import { apiDeleteVerb, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
 import {
   bootstrapSession,
   clearSession,
@@ -110,6 +111,9 @@ export default function App() {
   const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
   const [friendIds, setFriendIds] = useState(new Set());
   const [friendsList, setFriendsList] = useState([]);
+  const [pendingSentIds, setPendingSentIds] = useState(new Set());
+  const [sentRequests, setSentRequests] = useState([]);
+  const [friendRequests, setFriendRequests] = useState([]);
   const [isNewConvModalVisible, setIsNewConvModalVisible] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionKind, setSessionKind] = useState("group");
@@ -250,6 +254,8 @@ export default function App() {
         "/api/challenges/",
         `/api/social/suggestions/${activePatientId}`,
         `/api/social/friends/${activePatientId}`,
+        `/api/social/friends/${activePatientId}/requests`,
+        `/api/social/friends/${activePatientId}/sent`,
       ];
       const results = await Promise.allSettled(paths.map((p) => apiGet(p)));
       const firstReject = results.findIndex((r) => r.status === "rejected");
@@ -258,7 +264,7 @@ export default function App() {
         console.warn(`[loadApp] ${paths[firstReject]} failed:`, r.reason?.message);
         throw r.reason;
       }
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData] = results.map((r) => r.value);
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData, requestsData, sentData] = results.map((r) => r.value);
 
       setProfile(profileData);
       setFeed(feedData);
@@ -268,6 +274,9 @@ export default function App() {
       setFriendSuggestions(suggestionsData);
       setRestaurants(restaurantData);
       setFriendsList(friendsData ?? []);
+      setFriendRequests(requestsData ?? []);
+      setSentRequests(sentData ?? []);
+      setPendingSentIds(new Set((sentData ?? []).map((s) => s.id)));
       setFriendIds(new Set((friendsData ?? []).map((f) => f.id)));
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -456,8 +465,31 @@ export default function App() {
     }
   }
 
-  function toggleAccess(key) {
-    setAccessSettings((current) => ({ ...current, [key]: !current[key] }));
+  async function toggleAccess(key) {
+    // Persisted backend flags: share_activity, share_challenges, share_restaurants.
+    // The patient-app also exposes share_posts / share_messages_with_expert as
+    // UI-only switches for now (no backend column yet); those stay local.
+    const persistedKeys = new Set(["share_activity", "share_challenges", "share_restaurants"]);
+    const nextValue = !accessSettings?.[key];
+    setAccessSettings((current) => ({ ...current, [key]: nextValue }));
+    if (!persistedKeys.has(key)) return;
+    try {
+      const updated = await apiPatch(`/api/patients/${activePatientId}/settings/access`, {
+        [key]: nextValue,
+      });
+      // Reconcile with the server's authoritative state.
+      setAccessSettings((current) => ({
+        ...current,
+        share_activity: updated.share_activity,
+        share_challenges: updated.share_challenges,
+        share_restaurants: updated.share_restaurants,
+      }));
+    } catch (error) {
+      // Roll back the optimistic flip so the UI stays in sync with the
+      // backend.
+      setAccessSettings((current) => ({ ...current, [key]: !nextValue }));
+      Alert.alert("Préférence non enregistrée", error.message);
+    }
   }
 
   function toggleLike(postId) {
@@ -515,11 +547,58 @@ export default function App() {
   async function addFriend(friendId) {
     try {
       const newFriend = await apiPost(`/api/social/friends/${activePatientId}`, { friend_id: friendId });
-      setFriendIds((current) => new Set(current).add(friendId));
-      setFriendsList((current) => (current.some((f) => f.id === friendId) ? current : [newFriend, ...current]));
+      if (newFriend.status === "accepted") {
+        setFriendIds((current) => new Set(current).add(friendId));
+        setFriendsList((current) => (current.some((f) => f.id === friendId) ? current : [newFriend, ...current]));
+      } else {
+        // 'pending' — the receiver still has to accept. Mark locally so the
+        // 'Ajouter' button shows 'Demandé' and add to the sentRequests list.
+        setPendingSentIds((current) => new Set(current).add(friendId));
+        setSentRequests((current) => (current.some((s) => s.id === friendId) ? current : [newFriend, ...current]));
+        Alert.alert("Demande envoyée", `${newFriend.name} doit accepter avant que la connexion soit active.`);
+      }
     } catch (error) {
-      Alert.alert("Ami non ajouté", error.message);
+      Alert.alert("Demande échouée", error.message);
     }
+  }
+
+  async function acceptFriendRequest(requesterId) {
+    try {
+      const newFriend = await apiPost(
+        `/api/social/friends/${activePatientId}/requests/${requesterId}/accept`,
+        {},
+      );
+      setFriendIds((current) => new Set(current).add(requesterId));
+      setFriendsList((current) => (current.some((f) => f.id === requesterId) ? current : [newFriend, ...current]));
+      setFriendRequests((current) => current.filter((r) => r.requester_id !== requesterId));
+    } catch (error) {
+      Alert.alert("Acceptation échouée", error.message);
+    }
+  }
+
+  async function cancelSentRequest(friendId) {
+    try {
+      await apiDeleteVerb(`/api/social/friends/${activePatientId}/${friendId}`);
+    } catch (error) {
+      Alert.alert("Annulation échouée", error.message);
+      return;
+    }
+    setPendingSentIds((current) => {
+      const next = new Set(current);
+      next.delete(friendId);
+      return next;
+    });
+    setSentRequests((current) => current.filter((s) => s.id !== friendId));
+  }
+
+  async function rejectFriendRequest(requesterId) {
+    try {
+      await apiPost(`/api/social/friends/${activePatientId}/requests/${requesterId}/reject`, {});
+    } catch (error) {
+      Alert.alert("Rejet échoué", error.message);
+      return;
+    }
+    setFriendRequests((current) => current.filter((r) => r.requester_id !== requesterId));
   }
 
   async function startConversationWith(friendId) {
@@ -615,12 +694,53 @@ export default function App() {
 
   const isLoadingApp = loading || !profile || !progression || !settings || !accessSettings;
 
+  // #8 — Onboarding gate. PatientProfile exposes the DB column
+  // `primary_goal` as `main_goal`. A fresh signup auto-provisions the
+  // profiles row with main_goal='' (cf. _ensure_profile_for_auth_user),
+  // which is our trigger to render the welcome flow instead of the main
+  // shell. Once submitted, the PATCH updates primary_goal and the
+  // patient profile refetch reflects it as `main_goal`, so this check
+  // returns false on the next render.
+  const isFreshProfile =
+    !!profile &&
+    profile.role === "patient" &&
+    !(profile.main_goal || "").trim();
+
+  if (isFreshProfile) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.screen}>
+          <StatusBar style="dark" />
+          <OnboardingScreen
+            profileId={profile.id}
+            profileName={profile.full_name}
+            onComplete={async () => {
+              // Refetch the patient profile shape so the rest of the app
+              // sees the new age/primary_goal/privacy_level immediately
+              // (PATCH /api/users returns the legacy Profile schema; we
+              // want PatientProfile here).
+              try {
+                const fresh = await apiGet(`/api/patients/${activePatientId}/profile`);
+                setProfile(fresh);
+              } catch {}
+            }}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
         <View style={styles.header}>
-          <View style={styles.headerIdentity}>
+          <Pressable
+            onPress={() => setActiveTab("profile")}
+            style={styles.headerIdentity}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir mon profil"
+          >
             <YallaLogo size={48} />
             <View>
               <Text style={styles.greeting}>Bonjour</Text>
@@ -630,7 +750,7 @@ export default function App() {
                 <Skeleton width={150} height={28} style={{ marginTop: 4 }} />
               )}
             </View>
-          </View>
+          </Pressable>
           <View style={styles.roleSwitch}>
             <Text style={styles.roleSwitchText}>{isExpert ? "Expert" : "Patient"}</Text>
           </View>
@@ -657,6 +777,18 @@ export default function App() {
   );
 
   function renderTab() {
+    if (activeTab === "profile") {
+      return (
+        <ProfileScreen
+          profile={profile}
+          progression={progression}
+          patientId={activePatientId}
+          isExpert={isExpert}
+          onClose={() => setActiveTab("home")}
+          onLogout={handleLogout}
+        />
+      );
+    }
     if (activeTab === "home") {
       return <HomeScreen progression={progression} profile={profile} setActiveTab={setActiveTab} />;
     }
@@ -695,14 +827,20 @@ export default function App() {
           commentsByPost={commentsByPost}
           feed={feed}
           friendIds={friendIds}
+          friendRequests={friendRequests}
           friendSuggestions={friendSuggestions}
           isExpert={isExpert}
           likedPosts={likedPosts}
+          onAcceptFriend={acceptFriendRequest}
           onAddComment={addComment}
           onAddFriend={addFriend}
+          onCancelSentRequest={cancelSentRequest}
           onCreatePost={createPost}
           onJoinGroup={joinGroup}
+          onRejectFriend={rejectFriendRequest}
           onToggleLike={toggleLike}
+          pendingSentIds={pendingSentIds}
+          sentRequests={sentRequests}
           postContent={postContent}
           postType={postType}
           setCommentInputs={setCommentInputs}
@@ -815,6 +953,56 @@ function HomeScreen({ progression, profile, setActiveTab }) {
   );
 }
 
+function ProfileScreen({ profile, progression, patientId, isExpert, onClose, onLogout }) {
+  if (!profile) return null;
+  const initials = (profile.full_name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+  const roleLabel = isExpert ? "Patient expert" : profile.role === "doctor" ? "Médecin" : "Patient";
+  const checkInLabel = profile.last_check_in ? formatDate(profile.last_check_in) : "Aucun depuis l'inscription";
+  return (
+    <ScrollView contentContainerStyle={styles.listContent}>
+      <View style={styles.profileHero}>
+        <View style={styles.profileAvatar}>
+          <Text style={styles.profileAvatarText}>{initials}</Text>
+        </View>
+        <Text style={styles.profileName}>{profile.full_name}</Text>
+        <Text style={styles.profileRole}>{roleLabel}</Text>
+        {profile.primary_goal ? (
+          <Text style={styles.profileGoal}>« {profile.primary_goal} »</Text>
+        ) : null}
+      </View>
+
+      <Text style={styles.sectionTitle}>Mes statistiques</Text>
+      <View style={styles.statsRow}>
+        <StatCard label="Minutes/semaine" value={progression?.weekly_activity_minutes ?? 0} />
+        <StatCard label="Défis %" value={`${progression?.challenge_completion_rate ?? 0}%`} />
+        <StatCard label="Série" value={`${progression?.current_streak_days ?? 0}j`} />
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardMeta}>Dernier check-in</Text>
+        <Text style={styles.cardTitle}>{checkInLabel}</Text>
+        <Text style={styles.cardMeta} numberOfLines={1}>Statut : {profile.status || "En progrès"}</Text>
+        <Text style={styles.cardMeta}>Confidentialité : {profile.privacy_level || "Données limitées"}</Text>
+      </View>
+
+      <BadgesSection patientId={patientId} />
+
+      <Pressable onPress={onClose} style={[styles.secondaryButton, {marginTop: 8}]}>
+        <Text style={styles.secondaryButtonText}>Retour à l'accueil</Text>
+      </Pressable>
+      <Pressable onPress={onLogout} style={[styles.secondaryButton, {marginTop: 8, borderColor: "#fecaca"}]}>
+        <Text style={[styles.secondaryButtonText, {color: "#b91c1c"}]}>Se déconnecter</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+
 function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, patientId, availableChallenges }) {
   // progression.active_challenges is the source of truth (refreshed from DB after
   // joinChallenge). joinedChallengeIds is kept locally as a fast filter for the
@@ -900,8 +1088,14 @@ function CommunityScreen({
   commentsByPost,
   feed,
   friendIds,
+  friendRequests,
   friendSuggestions,
   likedPosts,
+  onAcceptFriend,
+  onCancelSentRequest,
+  onRejectFriend,
+  pendingSentIds,
+  sentRequests,
   onAddComment,
   onAddFriend,
   onCreatePost,
@@ -930,21 +1124,81 @@ function CommunityScreen({
             onPickImage={onPickImage}
             onClearImage={onClearImage}
           />
+          {friendRequests.length > 0 ? (
+            <>
+              <Text style={styles.sectionTitle}>Demandes reçues</Text>
+              {friendRequests.map((req) => (
+                <View key={req.requester_id} style={[styles.card, {marginBottom: 8}]}>
+                  <Text style={styles.cardTitle}>{req.requester_name}</Text>
+                  {req.primary_goal ? (
+                    <Text style={styles.cardMeta}>{req.primary_goal}</Text>
+                  ) : null}
+                  <View style={{flexDirection: "row", gap: 8, marginTop: 10}}>
+                    <Pressable
+                      onPress={() => onAcceptFriend(req.requester_id)}
+                      style={[styles.primaryButton, {flex: 1}]}
+                    >
+                      <Text style={styles.primaryButtonText}>Accepter</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onRejectFriend(req.requester_id)}
+                      style={[styles.secondaryButton, {flex: 1}]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Refuser</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </>
+          ) : null}
+
+          {sentRequests.length > 0 ? (
+            <>
+              <Text style={styles.sectionTitle}>Demandes envoyées</Text>
+              {sentRequests.map((req) => (
+                <View key={req.id} style={[styles.card, {marginBottom: 8}]}>
+                  <Text style={styles.cardTitle}>{req.name}</Text>
+                  {req.primary_goal ? (
+                    <Text style={styles.cardMeta}>{req.primary_goal}</Text>
+                  ) : null}
+                  <Text style={[styles.cardMeta, {fontStyle: "italic", marginTop: 4}]}>
+                    En attente d'acceptation
+                  </Text>
+                  <Pressable
+                    onPress={() => onCancelSentRequest(req.id)}
+                    style={[styles.secondaryButton, {marginTop: 10}]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Annuler la demande</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </>
+          ) : null}
+
           <Text style={styles.sectionTitle}>Ajouter des amis</Text>
           {friendSuggestions.length === 0 ? (
             <Text style={styles.cardMeta}>Aucune suggestion pour le moment.</Text>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
-              {friendSuggestions.map((friend) => (
-                <View key={friend.id} style={styles.friendCard}>
-                  <Text style={styles.cardTitle}>{friend.name}</Text>
-                  <Text style={styles.cardMeta}>{friend.detail}</Text>
-                  <Pressable onPress={() => onAddFriend(friend.id)} style={styles.secondaryButton}>
-                    <UserPlus size={16} color="#0f766e" />
-                    <Text style={styles.secondaryButtonText}>{friendIds.has(friend.id) ? "Ajouté" : "Ajouter"}</Text>
-                  </Pressable>
-                </View>
-              ))}
+              {friendSuggestions.map((friend) => {
+                const isFriend = friendIds.has(friend.id);
+                const isPending = pendingSentIds.has(friend.id);
+                const label = isFriend ? "Ami" : isPending ? "Demandé" : "Ajouter";
+                return (
+                  <View key={friend.id} style={styles.friendCard}>
+                    <Text style={styles.cardTitle}>{friend.name}</Text>
+                    <Text style={styles.cardMeta}>{friend.detail}</Text>
+                    <Pressable
+                      onPress={() => onAddFriend(friend.id)}
+                      style={styles.secondaryButton}
+                      disabled={isFriend || isPending}
+                    >
+                      <UserPlus size={16} color="#0f766e" />
+                      <Text style={styles.secondaryButtonText}>{label}</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </ScrollView>
           )}
 
@@ -1636,7 +1890,9 @@ async function apiGet(path) {
     },
   });
   if (!response.ok) {
-    throw new Error("Impossible de charger les données.");
+    const body = await response.text().catch(() => "");
+    console.warn(`[apiGet local] ${path} -> ${response.status}  ${body.slice(0, 160)}`);
+    throw new Error(`Impossible de charger les données (${response.status}).`);
   }
   return response.json();
 }
@@ -2037,6 +2293,45 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     gap: 10,
+  },
+  profileHero: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  profileAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#0f766e",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  profileAvatarText: {
+    color: "#ffffff",
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  profileName: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  profileRole: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0f766e",
+    marginTop: 4,
+  },
+  profileGoal: {
+    fontSize: 14,
+    color: "#475569",
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 12,
   },
   statCard: {
     flex: 1,

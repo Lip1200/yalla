@@ -92,6 +92,15 @@ class PrivacySettingsUpdate(BaseModel):
     privacy_level: str
 
 
+class AccessFlagsUpdate(BaseModel):
+    """Partial update for the per-flag access toggles. Any field omitted
+    keeps its current value."""
+
+    share_activity: bool | None = None
+    share_challenges: bool | None = None
+    share_restaurants: bool | None = None
+
+
 class PatientSettings(BaseModel):
     profile: PatientProfile
     share_activity: bool

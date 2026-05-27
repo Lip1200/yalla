@@ -46,6 +46,14 @@ def get_current_user(
             detail="Token invalide ou expiré.",
             headers=_UNAUTHORIZED_HEADERS,
         ) from exc
+    finally:
+        # supabase-py's auth.get_user mutates the shared postgrest client
+        # auth state to the caller's JWT, which then causes every
+        # subsequent .table() query in the request to be subject to RLS
+        # under that user's identity instead of bypassing it via the
+        # service-role key. The public `postgrest.auth(token)` setter
+        # restores both the internal _bearer and the session header.
+        supabase_client.postgrest.auth(settings.supabase_key)
 
     if response is None or response.user is None:
         raise HTTPException(
