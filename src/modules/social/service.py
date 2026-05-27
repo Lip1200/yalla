@@ -7,6 +7,7 @@ from src.modules.social.schemas import (
     AppRole,
     FeedPost,
     FeedPostCreate,
+    Friend,
     FriendSuggestion,
     Group,
     GroupCategory,
@@ -374,3 +375,103 @@ def list_friend_suggestions(
             )
         )
     return suggestions
+
+
+FRIENDS_TABLE = "patient_friends"
+
+
+def list_friends(patient_id: int) -> list[Friend]:
+    """Return profiles that `patient_id` has added as friends. Sorted by
+    most recently added first. Excludes deleted profiles (the FK cascade
+    on delete will have already removed those rows)."""
+    _get_profile_or_404(patient_id)
+    rows = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("friend_id, created_at")
+        .eq("patient_id", patient_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    friend_ids = [row["friend_id"] for row in (rows.data or [])]
+    if not friend_ids:
+        return []
+
+    profiles_resp = (
+        supabase_client.table(PROFILES_TABLE)
+        .select("id, full_name, role, primary_goal")
+        .in_("id", friend_ids)
+        .execute()
+    )
+    profiles = {row["id"]: row for row in (profiles_resp.data or [])}
+
+    result: list[Friend] = []
+    for row in rows.data or []:
+        profile = profiles.get(row["friend_id"])
+        if profile is None:
+            continue
+        raw_role = profile.get("role") or "patient"
+        try:
+            role = AppRole(raw_role)
+        except ValueError:
+            role = AppRole.PATIENT
+        created_raw = row.get("created_at")
+        created_at = (
+            datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+            if isinstance(created_raw, str)
+            else created_raw or datetime.now()
+        )
+        result.append(
+            Friend(
+                id=profile["id"],
+                name=profile.get("full_name") or "Profil Yalla",
+                role=role,
+                primary_goal=profile.get("primary_goal") or "",
+                created_at=created_at,
+            )
+        )
+    return result
+
+
+def add_friend(patient_id: int, friend_id: int) -> Friend:
+    """Persist a directed friendship: patient_id added friend_id. Idempotent
+    — re-adding returns the existing relationship instead of raising."""
+    if patient_id == friend_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="On ne peut pas s'ajouter soi-même.",
+        )
+    _get_profile_or_404(patient_id)
+    friend_profile = _get_profile_or_404(friend_id)
+
+    existing = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("patient_id, created_at")
+        .eq("patient_id", patient_id)
+        .eq("friend_id", friend_id)
+        .limit(1)
+        .execute()
+    )
+    if not existing.data:
+        supabase_client.table(FRIENDS_TABLE).insert(
+            {"patient_id": patient_id, "friend_id": friend_id}
+        ).execute()
+
+    # Return the Friend summary so the frontend can update its state without
+    # a second round-trip.
+    friends = list_friends(patient_id)
+    for friend in friends:
+        if friend.id == friend_id:
+            return friend
+    # Defensive: should never hit if the insert succeeded.
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Ami ajouté mais non retrouvé.",
+    )
+
+
+def remove_friend(patient_id: int, friend_id: int) -> None:
+    """Drop the directed friendship row. No-op if it didn't exist."""
+    _get_profile_or_404(patient_id)
+    supabase_client.table(FRIENDS_TABLE).delete().eq(
+        "patient_id", patient_id
+    ).eq("friend_id", friend_id).execute()

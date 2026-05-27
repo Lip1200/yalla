@@ -4,6 +4,8 @@ from src.core.security import AuthIdentity, get_current_user, get_profile_for_id
 from src.modules.social.schemas import (
     FeedPost,
     FeedPostCreate,
+    Friend,
+    FriendCreate,
     FriendSuggestion,
     Group,
     GroupCategory,
@@ -14,6 +16,7 @@ from src.modules.social.schemas import (
     SupportResponse,
 )
 from src.modules.social.service import (
+    add_friend,
     add_support,
     create_group,
     create_post,
@@ -22,8 +25,10 @@ from src.modules.social.service import (
     leave_group,
     list_feed,
     list_friend_suggestions,
+    list_friends,
     list_groups,
     list_members,
+    remove_friend,
     remove_support,
 )
 
@@ -120,3 +125,18 @@ def read_members(group_id: int):
 @router.get("/suggestions/{patient_id}", response_model=list[FriendSuggestion])
 def read_friend_suggestions(patient_id: int, limit: int = Query(default=10, ge=1, le=50)):
     return list_friend_suggestions(patient_id, limit=limit)
+
+
+@router.get("/friends/{patient_id}", response_model=list[Friend])
+def read_friends(patient_id: int):
+    return list_friends(patient_id)
+
+
+@router.post("/friends/{patient_id}", response_model=Friend, status_code=status.HTTP_201_CREATED)
+def add_friend_route(patient_id: int, payload: FriendCreate):
+    return add_friend(patient_id, payload.friend_id)
+
+
+@router.delete("/friends/{patient_id}/{friend_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_friend_route(patient_id: int, friend_id: int):
+    remove_friend(patient_id, friend_id)
