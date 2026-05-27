@@ -39,6 +39,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 
 import LoginScreen from "./components/LoginScreen";
+import OnboardingScreen from "./components/OnboardingScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
 import { apiDeleteVerb, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
@@ -692,6 +693,41 @@ export default function App() {
   }
 
   const isLoadingApp = loading || !profile || !progression || !settings || !accessSettings;
+
+  // #8 — Onboarding gate. A profile is "fresh" when the patient signed up
+  // but hasn't filled the welcome questionnaire yet (age + primary_goal are
+  // both empty). Until then we show the welcome flow instead of the main
+  // shell. Once submitted, the profile state is updated and this check
+  // returns false on the next render.
+  const isFreshProfile =
+    !!profile &&
+    profile.role === "patient" &&
+    (profile.age === null || profile.age === undefined) &&
+    !(profile.primary_goal || "").trim();
+
+  if (isFreshProfile) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.screen}>
+          <StatusBar style="dark" />
+          <OnboardingScreen
+            profileId={profile.id}
+            profileName={profile.full_name}
+            onComplete={async () => {
+              // Refetch the patient profile shape so the rest of the app
+              // sees the new age/primary_goal/privacy_level immediately
+              // (PATCH /api/users returns the legacy Profile schema; we
+              // want PatientProfile here).
+              try {
+                const fresh = await apiGet(`/api/patients/${activePatientId}/profile`);
+                setProfile(fresh);
+              } catch {}
+            }}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
