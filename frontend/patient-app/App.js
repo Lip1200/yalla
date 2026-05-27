@@ -247,6 +247,7 @@ export default function App() {
         "/api/social/groups",
         "/api/challenges/",
         `/api/social/suggestions/${activePatientId}`,
+        `/api/social/friends/${activePatientId}`,
       ];
       const results = await Promise.allSettled(paths.map((p) => apiGet(p)));
       const firstReject = results.findIndex((r) => r.status === "rejected");
@@ -255,7 +256,7 @@ export default function App() {
         console.warn(`[loadApp] ${paths[firstReject]} failed:`, r.reason?.message);
         throw r.reason;
       }
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData] = results.map((r) => r.value);
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData] = results.map((r) => r.value);
 
       setProfile(profileData);
       setFeed(feedData);
@@ -264,6 +265,7 @@ export default function App() {
       setAvailableChallenges(challengesData);
       setFriendSuggestions(suggestionsData);
       setRestaurants(restaurantData);
+      setFriendIds(new Set((friendsData ?? []).map((f) => f.id)));
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
       setMessageThreads(buildThreads(messageData));
@@ -507,11 +509,13 @@ export default function App() {
     }
   }
 
-  function addFriend(friendId) {
-    // Backend friendship model not implemented yet (issue #45 follow-up).
-    // Local-only state preserves visual feedback during the demo.
-    setFriendIds((current) => new Set(current).add(friendId));
-    Alert.alert("Ami ajouté localement", "La synchronisation des amis arrive bientôt.");
+  async function addFriend(friendId) {
+    try {
+      await apiPost(`/api/social/friends/${activePatientId}`, { friend_id: friendId });
+      setFriendIds((current) => new Set(current).add(friendId));
+    } catch (error) {
+      Alert.alert("Ami non ajouté", error.message);
+    }
   }
 
   function sendMessage() {
@@ -672,8 +676,8 @@ export default function App() {
           feed={feed}
           friendIds={friendIds}
           friendSuggestions={friendSuggestions}
-          likedPosts={likedPosts}
           isExpert={isExpert}
+          likedPosts={likedPosts}
           onAddComment={addComment}
           onAddFriend={addFriend}
           onCreatePost={createPost}

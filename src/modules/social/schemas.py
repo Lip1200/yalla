@@ -93,3 +93,18 @@ class FriendSuggestion(BaseModel):
     name: str
     detail: str
     role: AppRole
+
+
+class Friend(BaseModel):
+    """A profile that the requester has explicitly added to their friends
+    list. Returned by GET /api/social/friends/{patient_id}."""
+
+    id: int
+    name: str
+    role: AppRole
+    primary_goal: str = ""
+    created_at: datetime
+
+
+class FriendCreate(BaseModel):
+    friend_id: int
