@@ -651,7 +651,7 @@ export default function App() {
         <SafeAreaView style={styles.centered}>
           <YallaLogo size={72} />
           <ActivityIndicator color="#0f766e" size="large" />
-          <RNText style={styles.loadingText}>Yalla</RNText>
+          <Text style={styles.loadingText}>Yalla</Text>
         </SafeAreaView>
       </SafeAreaProvider>
     );
