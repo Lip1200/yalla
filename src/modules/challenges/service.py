@@ -127,6 +127,22 @@ def assign_to_patient(
                 detail="Vous ne pouvez assigner un défi qu'à vous-même.",
             )
 
+    # Idempotency: if an active assignment for this (patient, challenge) pair
+    # already exists, return it instead of creating a duplicate row. Avoids
+    # the "Mes défis" duplication when the patient-app fires the join twice
+    # (double-tap, network retry, etc.).
+    existing = (
+        supabase_client.table(PATIENT_CHALLENGES_TABLE)
+        .select("*")
+        .eq("patient_id", payload.patient_id)
+        .eq("challenge_id", payload.challenge_id)
+        .eq("status", ChallengeStatus.ACTIVE.value)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return _row_to_patient_challenge(existing.data[0], challenge)
+
     started_at = datetime.now()
     due_on = payload.due_on or (started_at.date() + timedelta(days=challenge.duration_days))
 

@@ -56,25 +56,6 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.1
 const PATIENT_ID = 101;
 const EXPERT_PATIENT_ID = 102;
 
-const suggestedChallenges = [
-  {
-    id: 201,
-    title: "10 min après le repas",
-    description: "Marcher doucement après le dîner pendant 4 soirs.",
-    category: "Activité",
-    progress: 0,
-    due_on: "2026-05-06",
-  },
-  {
-    id: 202,
-    title: "Assiette équilibrée",
-    description: "Composer 3 repas avec légumes, protéines et féculents complets.",
-    category: "Alimentation",
-    progress: 0,
-    due_on: "2026-05-08",
-  },
-];
-
 const suggestedFriends = [
   { id: 301, name: "Nadia Benali", detail: "Marche douce, 4 défis terminés" },
   { id: 302, name: "Youssef Haddad", detail: "Cuisine maison, nouveau dans le groupe" },
@@ -141,6 +122,7 @@ export default function App() {
   const [microChallengeTitle, setMicroChallengeTitle] = useState("");
   const [microChallengeDesc, setMicroChallengeDesc] = useState("");
   const [progression, setProgression] = useState(null);
+  const [availableChallenges, setAvailableChallenges] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [restaurantSearchLoading, setRestaurantSearchLoading] = useState(false);
   const [restaurantSearchError, setRestaurantSearchError] = useState("");
@@ -283,7 +265,7 @@ export default function App() {
     setLoading(true);
 
     try {
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData] = await Promise.all([
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData] = await Promise.all([
         apiGet(`/api/patients/${activePatientId}/profile`),
         apiGet(`/api/patients/${activePatientId}/feed`),
         apiGet(`/api/patients/${activePatientId}/progression`),
@@ -291,12 +273,14 @@ export default function App() {
         apiGet(`/api/patients/${activePatientId}/messages`),
         apiGet(`/api/patients/${activePatientId}/settings`),
         apiGet("/api/social/groups"),
+        apiGet("/api/challenges/"),
       ]);
 
       setProfile(profileData);
       setFeed(feedData);
       setGroups(groupsData);
       setProgression(progressionData);
+      setAvailableChallenges(challengesData);
       setRestaurants([...restaurantData, ...extraRestaurants]);
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -514,12 +498,38 @@ export default function App() {
     setCommentInputs((current) => ({ ...current, [postId]: "" }));
   }
 
-  function joinChallenge(challenge) {
-    setJoinedChallengeIds((current) => new Set(current).add(challenge.id));
+  async function joinChallenge(challenge) {
+    try {
+      await apiPost("/api/challenges/assignments", {
+        patient_id: activePatientId,
+        challenge_id: challenge.id,
+      });
+      setJoinedChallengeIds((current) => new Set(current).add(challenge.id));
+      const fresh = await apiGet(`/api/patients/${activePatientId}/progression`);
+      setProgression(fresh);
+    } catch (error) {
+      Alert.alert("Défi non rejoint", error.message);
+    }
+  }
+
+  async function joinGroup(groupId) {
+    try {
+      const updated = await apiPost(`/api/social/groups/${groupId}/join`, {
+        user_id: activePatientId,
+      });
+      setGroups((current) =>
+        current.map((g) => (g.id === groupId ? { ...g, ...updated } : g)),
+      );
+    } catch (error) {
+      Alert.alert("Groupe non rejoint", error.message);
+    }
   }
 
   function addFriend(friendId) {
+    // Backend friendship model not implemented yet (issue #45 follow-up).
+    // Local-only state preserves visual feedback during the demo.
     setFriendIds((current) => new Set(current).add(friendId));
+    Alert.alert("Ami ajouté localement", "La synchronisation des amis arrive bientôt.");
   }
 
   function sendMessage() {
@@ -651,6 +661,7 @@ export default function App() {
           onJoinChallenge={joinChallenge}
           progression={progression}
           patientId={activePatientId}
+          availableChallenges={availableChallenges}
         />
       );
     }
@@ -682,6 +693,7 @@ export default function App() {
           onAddComment={addComment}
           onAddFriend={addFriend}
           onCreatePost={createPost}
+          onJoinGroup={joinGroup}
           onToggleLike={toggleLike}
           postContent={postContent}
           postType={postType}
@@ -779,10 +791,12 @@ function HomeScreen({ progression, profile, setActiveTab }) {
   );
 }
 
-function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, patientId }) {
-  const joinedSuggestions = suggestedChallenges.filter((challenge) => joinedChallengeIds.has(challenge.id));
-  const availableSuggestions = suggestedChallenges.filter((challenge) => !joinedChallengeIds.has(challenge.id));
-  const activeChallenges = [...progression.active_challenges, ...joinedSuggestions];
+function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, patientId, availableChallenges }) {
+  // progression.active_challenges is the source of truth (refreshed from DB after
+  // joinChallenge). joinedChallengeIds is kept locally as a fast filter for the
+  // "Rejoindre un défi" carousel between click and refresh.
+  const availableSuggestions = availableChallenges.filter((challenge) => !joinedChallengeIds.has(challenge.id));
+  const activeChallenges = progression.active_challenges;
 
   return (
     <ScrollView contentContainerStyle={styles.listContent}>
@@ -814,7 +828,9 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, pati
             </Pressable>
           </View>
           <Text style={styles.cardBody}>{challenge.description}</Text>
-          <Text style={styles.cardFooter}>Échéance {formatDate(challenge.due_on)}</Text>
+          {challenge.due_on ? (
+            <Text style={styles.cardFooter}>Échéance {formatDate(challenge.due_on)}</Text>
+          ) : null}
         </View>
       ))}
     </ScrollView>
@@ -822,15 +838,17 @@ function ProgressScreen({ joinedChallengeIds, onJoinChallenge, progression, pati
 }
 
 function ChallengeCard({ challenge }) {
+  const progress = typeof challenge.progress === "number" ? challenge.progress : 0;
+  const dueLabel = challenge.due_on ? `· échéance ${formatDate(challenge.due_on)}` : "";
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{challenge.title}</Text>
       <Text style={styles.cardMeta}>{challenge.category}</Text>
       <Text style={styles.cardBody}>{challenge.description}</Text>
       <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${challenge.progress}%` }]} />
+        <View style={[styles.progressFill, { width: `${progress}%` }]} />
       </View>
-      <Text style={styles.cardFooter}>{challenge.progress}% · échéance {formatDate(challenge.due_on)}</Text>
+      <Text style={styles.cardFooter}>{progress}% {dueLabel}</Text>
     </View>
   );
 }
@@ -861,6 +879,7 @@ function CommunityScreen({
   onAddComment,
   onAddFriend,
   onCreatePost,
+  onJoinGroup,
   onToggleLike,
   postContent,
   postType,
@@ -912,7 +931,7 @@ function CommunityScreen({
                 <Text style={styles.cardTitle}>{group.name}</Text>
                 <Text style={styles.cardMeta}>{group.category === "walking" ? "Marche" : group.category === "cooking" ? "Cuisine" : group.category === "support" ? "Soutien" : "Général"} · {group.member_count} membre(s)</Text>
                 <Text style={styles.cardBody} numberOfLines={2}>{group.description}</Text>
-                <Pressable style={[styles.primaryButton, {marginTop: 10}]}>
+                <Pressable onPress={() => onJoinGroup(group.id)} style={[styles.primaryButton, {marginTop: 10}]}>
                   <Text style={styles.primaryButtonText}>Rejoindre</Text>
                 </Pressable>
                 <Pressable onPress={() => setChallengeGroupTarget(group.id)} style={[styles.secondaryButton, {marginTop: 8}]}>

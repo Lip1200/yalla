@@ -225,13 +225,62 @@ def create_post(patient_id: int, payload: FeedPostCreate) -> FeedPost:
     )
 
 
+def _fetch_active_challenges_for_patient(patient_id: int) -> list[Challenge]:
+    """Read active rows from patient_challenges + join with the challenges
+    template to build the legacy Challenge shape (id, title, description,
+    category, progress, due_on) expected by the patient-app.
+
+    Falls back to the seeded in-memory dict when the DB has no row — the
+    demo patients (101 Karim, 102 Amina) keep their fake-but-pretty data
+    so the dashboards remain populated for the class demo."""
+    assignments = (
+        supabase_client.table("patient_challenges")
+        .select("id, challenge_id, progress, due_on")
+        .eq("patient_id", patient_id)
+        .eq("status", "active")
+        .order("started_at", desc=True)
+        .execute()
+    )
+    rows = assignments.data or []
+    if not rows:
+        return challenges.get(patient_id, [])
+
+    template_ids = sorted({row["challenge_id"] for row in rows})
+    templates_resp = (
+        supabase_client.table("challenges")
+        .select("id, title, description, category")
+        .in_("id", template_ids)
+        .execute()
+    )
+    templates = {row["id"]: row for row in (templates_resp.data or [])}
+
+    result: list[Challenge] = []
+    for row in rows:
+        template = templates.get(row["challenge_id"])
+        if template is None:
+            continue
+        due = row["due_on"]
+        due_date = date.fromisoformat(due) if isinstance(due, str) else due
+        result.append(
+            Challenge(
+                id=row["id"],
+                title=template["title"],
+                description=template.get("description") or "",
+                category=str(template.get("category") or ""),
+                progress=int(row.get("progress") or 0),
+                due_on=due_date,
+            )
+        )
+    return result
+
+
 def get_progression(patient_id: int) -> Progression:
     profile = get_profile(patient_id)
     return Progression(
         weekly_activity_minutes=profile.weekly_activity_minutes,
         challenge_completion_rate=profile.challenge_completion_rate,
         current_streak_days=6 if profile.role == AppRole.EXPERT_PATIENT else 3,
-        active_challenges=challenges.get(patient_id, []),
+        active_challenges=_fetch_active_challenges_for_patient(patient_id),
     )
 
 
