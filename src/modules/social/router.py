@@ -29,6 +29,7 @@ from src.modules.social.service import (
     list_friend_requests,
     list_friend_suggestions,
     list_friends,
+    list_sent_friend_requests,
     list_groups,
     list_members,
     reject_friend_request,
@@ -149,6 +150,11 @@ def remove_friend_route(patient_id: int, friend_id: int):
 @router.get("/friends/{patient_id}/requests", response_model=list[FriendRequest])
 def read_friend_requests(patient_id: int):
     return list_friend_requests(patient_id)
+
+
+@router.get("/friends/{patient_id}/sent", response_model=list[Friend])
+def read_sent_requests(patient_id: int):
+    return list_sent_friend_requests(patient_id)
 
 
 @router.post(

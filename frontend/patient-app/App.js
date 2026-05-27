@@ -41,7 +41,7 @@ import * as Linking from "expo-linking";
 import LoginScreen from "./components/LoginScreen";
 import PedometerCard from "./components/PedometerCard";
 import SetupAccountScreen from "./components/SetupAccountScreen";
-import { getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
+import { apiDeleteVerb, getActiveAccessToken, setUnauthorizedHandler } from "./services/api";
 import {
   bootstrapSession,
   clearSession,
@@ -111,6 +111,7 @@ export default function App() {
   const [friendIds, setFriendIds] = useState(new Set());
   const [friendsList, setFriendsList] = useState([]);
   const [pendingSentIds, setPendingSentIds] = useState(new Set());
+  const [sentRequests, setSentRequests] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
   const [isNewConvModalVisible, setIsNewConvModalVisible] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
@@ -253,6 +254,7 @@ export default function App() {
         `/api/social/suggestions/${activePatientId}`,
         `/api/social/friends/${activePatientId}`,
         `/api/social/friends/${activePatientId}/requests`,
+        `/api/social/friends/${activePatientId}/sent`,
       ];
       const results = await Promise.allSettled(paths.map((p) => apiGet(p)));
       const firstReject = results.findIndex((r) => r.status === "rejected");
@@ -261,7 +263,7 @@ export default function App() {
         console.warn(`[loadApp] ${paths[firstReject]} failed:`, r.reason?.message);
         throw r.reason;
       }
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData, requestsData] = results.map((r) => r.value);
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData, requestsData, sentData] = results.map((r) => r.value);
 
       setProfile(profileData);
       setFeed(feedData);
@@ -272,7 +274,8 @@ export default function App() {
       setRestaurants(restaurantData);
       setFriendsList(friendsData ?? []);
       setFriendRequests(requestsData ?? []);
-      setPendingSentIds(new Set());
+      setSentRequests(sentData ?? []);
+      setPendingSentIds(new Set((sentData ?? []).map((s) => s.id)));
       setFriendIds(new Set((friendsData ?? []).map((f) => f.id)));
       setMessages(messageData);
       setSelectedConversationId(messageData[0]?.id ?? null);
@@ -525,8 +528,9 @@ export default function App() {
         setFriendsList((current) => (current.some((f) => f.id === friendId) ? current : [newFriend, ...current]));
       } else {
         // 'pending' — the receiver still has to accept. Mark locally so the
-        // 'Ajouter' button shows 'Demandé' and the suggestion stops appearing.
+        // 'Ajouter' button shows 'Demandé' and add to the sentRequests list.
         setPendingSentIds((current) => new Set(current).add(friendId));
+        setSentRequests((current) => (current.some((s) => s.id === friendId) ? current : [newFriend, ...current]));
         Alert.alert("Demande envoyée", `${newFriend.name} doit accepter avant que la connexion soit active.`);
       }
     } catch (error) {
@@ -546,6 +550,21 @@ export default function App() {
     } catch (error) {
       Alert.alert("Acceptation échouée", error.message);
     }
+  }
+
+  async function cancelSentRequest(friendId) {
+    try {
+      await apiDeleteVerb(`/api/social/friends/${activePatientId}/${friendId}`);
+    } catch (error) {
+      Alert.alert("Annulation échouée", error.message);
+      return;
+    }
+    setPendingSentIds((current) => {
+      const next = new Set(current);
+      next.delete(friendId);
+      return next;
+    });
+    setSentRequests((current) => current.filter((s) => s.id !== friendId));
   }
 
   async function rejectFriendRequest(requesterId) {
@@ -738,11 +757,13 @@ export default function App() {
           onAcceptFriend={acceptFriendRequest}
           onAddComment={addComment}
           onAddFriend={addFriend}
+          onCancelSentRequest={cancelSentRequest}
           onCreatePost={createPost}
           onJoinGroup={joinGroup}
           onRejectFriend={rejectFriendRequest}
           onToggleLike={toggleLike}
           pendingSentIds={pendingSentIds}
+          sentRequests={sentRequests}
           postContent={postContent}
           postType={postType}
           setCommentInputs={setCommentInputs}
@@ -944,8 +965,10 @@ function CommunityScreen({
   friendSuggestions,
   likedPosts,
   onAcceptFriend,
+  onCancelSentRequest,
   onRejectFriend,
   pendingSentIds,
+  sentRequests,
   onAddComment,
   onAddFriend,
   onCreatePost,
@@ -997,6 +1020,29 @@ function CommunityScreen({
                       <Text style={styles.secondaryButtonText}>Refuser</Text>
                     </Pressable>
                   </View>
+                </View>
+              ))}
+            </>
+          ) : null}
+
+          {sentRequests.length > 0 ? (
+            <>
+              <Text style={styles.sectionTitle}>Demandes envoyées</Text>
+              {sentRequests.map((req) => (
+                <View key={req.id} style={[styles.card, {marginBottom: 8}]}>
+                  <Text style={styles.cardTitle}>{req.name}</Text>
+                  {req.primary_goal ? (
+                    <Text style={styles.cardMeta}>{req.primary_goal}</Text>
+                  ) : null}
+                  <Text style={[styles.cardMeta, {fontStyle: "italic", marginTop: 4}]}>
+                    En attente d'acceptation
+                  </Text>
+                  <Pressable
+                    onPress={() => onCancelSentRequest(req.id)}
+                    style={[styles.secondaryButton, {marginTop: 10}]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Annuler la demande</Text>
+                  </Pressable>
                 </View>
               ))}
             </>

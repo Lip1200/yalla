@@ -476,6 +476,47 @@ def list_friends(patient_id: int) -> list[Friend]:
     return result
 
 
+def list_sent_friend_requests(patient_id: int) -> list[Friend]:
+    """Pending requests `patient_id` has SENT but the receiver hasn't
+    accepted yet. Used by the patient-app to show 'Demande envoyée'
+    status and let the user cancel if they want."""
+    _get_profile_or_404(patient_id)
+    rows = (
+        supabase_client.table(FRIENDS_TABLE)
+        .select("friend_id, created_at")
+        .eq("patient_id", patient_id)
+        .eq("status", "pending")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    friend_ids = [row["friend_id"] for row in (rows.data or [])]
+    if not friend_ids:
+        return []
+    profiles_resp = (
+        supabase_client.table(PROFILES_TABLE)
+        .select("id, full_name, role, primary_goal")
+        .in_("id", friend_ids)
+        .execute()
+    )
+    profiles = {row["id"]: row for row in (profiles_resp.data or [])}
+    result: list[Friend] = []
+    for row in rows.data or []:
+        profile = profiles.get(row["friend_id"])
+        if profile is None:
+            continue
+        result.append(
+            Friend(
+                id=profile["id"],
+                name=profile.get("full_name") or "Profil Yalla",
+                role=_role_from_raw(profile.get("role")),
+                primary_goal=profile.get("primary_goal") or "",
+                created_at=_parse_created_at(row.get("created_at")),
+                status="pending",
+            )
+        )
+    return result
+
+
 def list_friend_requests(patient_id: int) -> list[FriendRequest]:
     """Pending requests that `patient_id` has received and hasn't yet
     accepted or rejected. Used by the patient-app to render the

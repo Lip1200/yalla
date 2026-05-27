@@ -91,4 +91,15 @@ export async function apiPost(path, payload) {
   return response.json();
 }
 
+export async function apiDeleteVerb(path) {
+  const response = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 204) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? "Action impossible.");
+  }
+  return null;
+}
+
 export { API_BASE_URL };
