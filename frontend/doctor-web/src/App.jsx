@@ -670,13 +670,32 @@ function PatientAccountCreator({ creating, error, form, onChange, onCreate, resu
           <Text style={styles.accountResultTitle}>Compte créé pour {result.patient.full_name}</Text>
           <Text style={styles.accountResultText}>Email : {result.email}</Text>
           <Text style={styles.accountResultText}>
-            Lien d'invitation à transmettre au patient (valide jusqu'au {formatDate(result.expires_at)}) :
+            Code d'invitation à transmettre au patient (valide jusqu'au {formatDate(result.expires_at)}) :
           </Text>
-          <Text style={[styles.accountResultText, { fontWeight: "700", userSelect: "text" }]} selectable>
-            {result.invitation_url}
+          <Text
+            style={[
+              styles.accountResultText,
+              {
+                fontFamily: "monospace",
+                fontSize: 14,
+                fontWeight: "700",
+                backgroundColor: "#f1f5f9",
+                borderWidth: 1,
+                borderColor: "#cbd5e1",
+                borderRadius: 8,
+                padding: 12,
+                marginVertical: 8,
+                userSelect: "text",
+                wordBreak: "break-all",
+              },
+            ]}
+            selectable
+          >
+            {(result.invitation_url || "").split("token=").pop()}
           </Text>
           <Text style={styles.accountResultText}>
-            {result.setup_status ?? "Le patient choisira son mot de passe lors de l'ouverture du lien."}
+            Le patient ouvre l'app Yalla, appuie sur «&nbsp;J'ai un code d'invitation&nbsp;» et colle ce code.
+            Un email a aussi été envoyé à {result.email} (vérifie le spam).
           </Text>
         </View>
       ) : null}
