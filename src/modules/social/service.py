@@ -165,6 +165,27 @@ def list_groups(category: GroupCategory | None = None) -> list[Group]:
     return [_row_to_group(row) for row in response.data]
 
 
+def list_groups_for_member(user_id: int) -> list[Group]:
+    """Return groups the patient is a member of (either admin or member)."""
+    memberships = (
+        supabase_client.table(GROUP_MEMBERS_TABLE)
+        .select("group_id")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    group_ids = [row["group_id"] for row in (memberships.data or [])]
+    if not group_ids:
+        return []
+    response = (
+        supabase_client.table(GROUPS_TABLE)
+        .select("*")
+        .in_("id", group_ids)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return [_row_to_group(row) for row in (response.data or [])]
+
+
 def create_group(payload: GroupCreate) -> Group:
     creator = _get_profile_or_404(payload.creator_id)
     insert_data = {

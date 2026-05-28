@@ -120,6 +120,7 @@ function FeedCard({ commentInput, comments, isLiked, onAddComment, onChangeComme
 export default function CommunityScreen({
   isExpert,
   groups,
+  myGroups = [],
   isGroupFormVisible,
   newGroupName,
   newGroupDescription,
@@ -240,6 +241,27 @@ export default function CommunityScreen({
               })}
             </ScrollView>
           )}
+
+          {myGroups.length > 0 ? (
+            <>
+              <Text style={styles.sectionTitle}>Mes groupes</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>
+                {myGroups.map((group) => (
+                  <View key={`mine-${group.id}`} style={[styles.friendCard, styles.groupCard]}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{group.name}</Text>
+                    <Text style={styles.cardMeta}>
+                      {group.category === "walking" ? "Marche" : group.category === "cooking" ? "Cuisine" : group.category === "support" ? "Soutien" : "Général"}
+                      {" · "}
+                      {group.member_count} membre(s)
+                    </Text>
+                    <Text style={styles.cardBody} numberOfLines={3}>{group.description}</Text>
+                    <View style={{ flex: 1 }} />
+                    <Text style={[styles.cardMeta, { color: "#0f766e", fontWeight: "700", marginTop: 8 }]}>✓ Membre</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </>
+          ) : null}
 
           <Text style={styles.sectionTitle}>Groupes de soutien</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendRail}>

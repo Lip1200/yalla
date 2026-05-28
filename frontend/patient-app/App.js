@@ -102,6 +102,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [feed, setFeed] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [myGroups, setMyGroups] = useState([]);
   const [isGroupFormVisible, setIsGroupFormVisible] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDescription, setNewGroupDescription] = useState("");
@@ -303,6 +304,7 @@ export default function App() {
         `/api/social/friends/${activePatientId}`,
         `/api/social/friends/${activePatientId}/requests`,
         `/api/social/friends/${activePatientId}/sent`,
+        `/api/social/users/${activePatientId}/groups`,
       ];
       const results = await Promise.allSettled(paths.map((p) => apiGet(p)));
       const firstReject = results.findIndex((r) => r.status === "rejected");
@@ -311,11 +313,12 @@ export default function App() {
         console.warn(`[loadApp] ${paths[firstReject]} failed:`, r.reason?.message);
         throw r.reason;
       }
-      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData, requestsData, sentData] = results.map((r) => r.value);
+      const [profileData, feedData, progressionData, restaurantData, messageData, settingsData, groupsData, challengesData, suggestionsData, friendsData, requestsData, sentData, myGroupsData] = results.map((r) => r.value);
 
       setProfile(profileData);
       setFeed(feedData);
       setGroups(groupsData);
+      setMyGroups(myGroupsData ?? []);
       setProgression(progressionData);
       setAvailableChallenges(challengesData);
       setFriendSuggestions(suggestionsData);
@@ -585,6 +588,9 @@ export default function App() {
       });
       setGroups((current) =>
         current.map((g) => (g.id === groupId ? { ...g, ...updated } : g)),
+      );
+      setMyGroups((current) =>
+        current.some((g) => g.id === groupId) ? current : [updated, ...current],
       );
     } catch (error) {
       Alert.alert("Groupe non rejoint", error.message);
@@ -864,6 +870,7 @@ export default function App() {
       return (
         <CommunityScreen
           groups={groups}
+          myGroups={myGroups}
           isGroupFormVisible={isGroupFormVisible}
           newGroupName={newGroupName}
           newGroupDescription={newGroupDescription}
