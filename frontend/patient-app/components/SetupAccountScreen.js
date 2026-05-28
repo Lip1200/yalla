@@ -109,6 +109,7 @@ export default function SetupAccountScreen({ initialToken = "", onDone }) {
         email: body?.user?.email ?? "—",
         full_name: body?.user?.full_name ?? "",
         needsConfirmation: false,
+        session: body,
       });
     } catch (e) {
       setError(e?.message ?? "Erreur inattendue.");
@@ -138,7 +139,7 @@ export default function SetupAccountScreen({ initialToken = "", onDone }) {
               Tu peux maintenant utiliser l'application avec ton mot de passe.
             </Text>
           )}
-          <Pressable style={styles.primaryBtn} onPress={onDone}>
+          <Pressable style={styles.primaryBtn} onPress={() => onDone?.(success.session)}>
             <Text style={styles.primaryBtnText}>Continuer vers Yalla</Text>
           </Pressable>
         </View>

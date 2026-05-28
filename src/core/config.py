@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://127.0.0.1:8081"
     setup_token_ttl_days: int = 7
 
+    # Resend (transactional email) credentials. Empty key disables email
+    # send — `create_patient_account` will still return the invitation_url
+    # so the doctor can share it manually.
+    resend_api_key: str = ""
+    resend_from_email: str = "Yalla <onboarding@resend.dev>"
+
 
     model_config = SettingsConfigDict(
         env_file=".env",
