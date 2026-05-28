@@ -708,7 +708,12 @@ export default function App() {
           <StatusBar style="dark" />
           <SetupAccountScreen
             initialToken={setupToken}
-            onDone={() => setSetupToken(null)}
+            onDone={(newSession) => {
+              setSetupToken(null);
+              if (newSession?.access_token) {
+                setSession(newSession);
+              }
+            }}
           />
         </SafeAreaView>
       </SafeAreaProvider>
@@ -727,13 +732,18 @@ export default function App() {
     );
   }
 
-  // #28 — not authenticated → show login/signup.
+  // #28 — not authenticated → show login. Patients arriving via
+  // invitation can switch to the setup screen via the 'J'ai un code'
+  // button (which sets setupToken='').
   if (!session) {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={styles.screen}>
           <StatusBar style="dark" />
-          <LoginScreen onAuthenticated={(s) => setSession(s)} />
+          <LoginScreen
+            onAuthenticated={(s) => setSession(s)}
+            onStartSetup={() => setSetupToken("")}
+          />
         </SafeAreaView>
       </SafeAreaProvider>
     );

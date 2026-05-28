@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 
 from src.core.config import settings
 from src.core.database import supabase_client
+from src.core.email import send_invitation_email
 from src.core.security import AuthIdentity, get_profile_for_identity
 from src.modules.doctors.schemas import (
     DoctorDashboard,
@@ -108,6 +109,15 @@ def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> Pat
         ) from exc
 
     invitation_url = f"{settings.frontend_base_url.rstrip('/')}/setup?token={token}"
+
+    # Fire-and-forget invitation email. Failures are silent (logged
+    # server-side); the doctor always sees the invitation_url in the
+    # response and can copy/paste it manually as a fallback.
+    send_invitation_email(
+        to=str(payload.email),
+        patient_name=payload.full_name,
+        invitation_url=invitation_url,
+    )
 
     return PatientAccountCreated(
         patient=_to_summary(_row_to_detail(patient_row)),

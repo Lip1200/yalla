@@ -32,6 +32,8 @@ services:
       OVERPASS_API_URL: ${OVERPASS_API_URL:-https://overpass-api.de/api/interpreter}
       THEFORK_API_KEY: ${THEFORK_API_KEY:-}
       SETUP_TOKEN_TTL_DAYS: ${SETUP_TOKEN_TTL_DAYS:-7}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Yalla <onboarding@resend.dev>}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
       interval: 30s

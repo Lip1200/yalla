@@ -24,7 +24,7 @@ import { LogIn, ShieldCheck } from "lucide-react-native";
 
 import { loginPatient } from "../services/auth";
 
-export default function LoginScreen({ onAuthenticated }) {
+export default function LoginScreen({ onAuthenticated, onStartSetup }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -108,8 +108,16 @@ export default function LoginScreen({ onAuthenticated }) {
           )}
         </Pressable>
 
+        <Pressable
+          onPress={onStartSetup}
+          style={styles.secondaryBtn}
+          disabled={submitting}
+        >
+          <Text style={styles.secondaryBtnText}>J'ai un code d'invitation</Text>
+        </Pressable>
+
         <Text style={styles.helperText}>
-          Tu n'as pas encore d'accès ? Demande à ton médecin de t'envoyer une invitation.
+          Tu n'as pas encore d'accès ? Demande à ton médecin de t'envoyer une invitation par email.
         </Text>
       </View>
     </ScrollView>
@@ -188,6 +196,19 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "700",
     fontSize: 15,
+  },
+  secondaryBtn: {
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#0f766e",
+    alignItems: "center",
+  },
+  secondaryBtnText: {
+    color: "#0f766e",
+    fontWeight: "700",
+    fontSize: 14,
   },
   helperText: {
     color: "#64748b",
