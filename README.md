@@ -66,3 +66,38 @@ Le flag `--reload` permet de redémarrer le serveur automatiquement lorsque vous
 
 Une fois le serveur lancé, accédez à la documentation générée automatiquement par FastAPI (Swagger UI) à cette adresse :
 👉 **[http://localhost:8000/docs](http://localhost:8000/docs)**
+
+## Tests
+
+### Backend (pytest)
+
+```bash
+# Installer les dépendances de dev (pytest, pytest-cov)
+uv sync --group dev
+
+# Lancer la suite complète
+uv run pytest
+
+# Avec rapport de couverture (terminal + HTML)
+uv run pytest --cov=src --cov-report=term --cov-report=html
+# → htmlcov/index.html
+```
+
+La suite couvre les modules critiques (privacy mask doctor-side,
+friendship state machine, conversations DB mapping, idempotency on
+challenge assignment, postgrest auth restore) via une combinaison de
+tests unitaires (avec `FakeSupabaseClient`, voir `tests/_fakes.py`) et
+de tests d'intégration via `FastAPI TestClient`.
+
+### Doctor-web (Vitest)
+
+```bash
+cd frontend/doctor-web
+npm install
+npm test                  # une fois
+npm run test:watch        # watch
+npm run test:coverage     # rapport HTML
+```
+
+Les tests vérifient les helpers purs (`utils.js`) et un smoke test de
+rendu de `App.jsx` sans session active.
