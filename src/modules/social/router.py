@@ -29,6 +29,7 @@ from src.modules.social.service import (
     list_friend_requests,
     list_friend_suggestions,
     list_friends,
+    list_groups_for_member,
     list_sent_friend_requests,
     list_groups,
     list_members,
@@ -110,6 +111,11 @@ def add_group(payload: GroupCreate):
 @router.get("/groups/{group_id}", response_model=GroupDetail)
 def read_group(group_id: int):
     return get_group(group_id)
+
+
+@router.get("/users/{user_id}/groups", response_model=list[Group])
+def read_user_groups(user_id: int):
+    return list_groups_for_member(user_id)
 
 
 @router.post("/groups/{group_id}/join", response_model=GroupDetail)
