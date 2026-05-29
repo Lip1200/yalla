@@ -33,6 +33,7 @@ import {
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
+import * as Updates from "expo-updates";
 
 import LoginScreen from "./components/LoginScreen";
 import AccessScreen from "./screens/AccessScreen";
@@ -158,6 +159,28 @@ export default function App() {
 
     return baseTabs;
   }, [isExpert]);
+
+  // Force an EAS update fetch + reload on launch so newly-published
+  // bundles take effect immediately, not on the second open. Without
+  // this, Expo Go shows the previously-cached bundle while the new one
+  // downloads in background, and users have to close+reopen to see it
+  // — which made the "J'ai un code d'invitation" button look missing
+  // to anyone whose cache still held the pre-invitation bundle.
+  // No-op in dev (Updates.isEnabled === false when running Metro).
+  useEffect(() => {
+    if (!Updates.isEnabled) return;
+    (async () => {
+      try {
+        const check = await Updates.checkForUpdateAsync();
+        if (check.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch {
+        // Update check failures must never block the app from launching.
+      }
+    })();
+  }, []);
 
   // #37 — detect a `?token=...` URL on app launch (deep link or pasted
   // by the user via the Setup screen's input). Both the initial URL and
@@ -823,7 +846,11 @@ export default function App() {
 
   // #37 — Patient opened the app via an invitation link → bypass the
   // normal shell and walk them through password setup.
-  if (setupToken) {
+  // Truthy check would skip the screen when the user opened it via the
+  // "J'ai un code d'invitation" button (which sets setupToken=""). Treat
+  // *any* non-null value — including the empty string — as "show the
+  // setup screen". The screen itself handles empty input gracefully.
+  if (setupToken !== null) {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={styles.screen}>
