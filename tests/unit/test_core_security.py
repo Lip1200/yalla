@@ -97,11 +97,13 @@ class TestGetCurrentUser:
         self, fake_client: FakeSupabaseClient,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # The whole point of the finally block: postgrest.auth must be
-        # called with the service key even on success path.
-        monkeypatch.setattr(
-            security_module.settings, "supabase_key", "service-role-key"
-        )
+        # The whole point of the finally block: restore_service_bearer
+        # must run even on the success path. We spy on the function
+        # imported into security_module rather than on
+        # postgrest.auth(...) because in supabase-py 2.x that method
+        # does NOT mutate the singleton (see core/database.py).
+        spy = MagicMock()
+        monkeypatch.setattr(security_module, "restore_service_bearer", spy)
         fake_user = MagicMock()
         fake_user.id = "user-tefa"
         fake_user.email = "tefa@example.com"
@@ -110,21 +112,20 @@ class TestGetCurrentUser:
         fake_client.auth.get_user.return_value = fake_response
 
         get_current_user(credentials=_creds("real-jwt"))
-        fake_client.postgrest.auth.assert_called_with("service-role-key")
+        spy.assert_called_once()
 
     def test_postgrest_auth_restored_after_failure(
         self, fake_client: FakeSupabaseClient,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(
-            security_module.settings, "supabase_key", "service-role-key"
-        )
+        spy = MagicMock()
+        monkeypatch.setattr(security_module, "restore_service_bearer", spy)
         fake_client.auth.get_user.side_effect = RuntimeError("boom")
 
         with pytest.raises(HTTPException) as exc:
             get_current_user(credentials=_creds("bad-jwt"))
         assert exc.value.status_code == 401
-        fake_client.postgrest.auth.assert_called_with("service-role-key")
+        spy.assert_called_once()
 
     def test_get_user_returns_none_user_raises_401(
         self, fake_client: FakeSupabaseClient

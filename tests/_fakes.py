@@ -233,14 +233,28 @@ class FakeAuth:
         raise RuntimeError("FakeAuth.sign_up: no response configured")
 
 
+class _FakeSession:
+    """Stand-in for the httpx Session that supabase-py's postgrest client
+    holds. Only `headers` is touched by restore_service_bearer (it writes
+    the Authorization header directly), so a plain dict is enough."""
+
+    def __init__(self) -> None:
+        self.headers: dict[str, Any] = {}
+
+
 class FakePostgrest:
-    """Capture postgrest.auth(key) calls so security.get_current_user
-    can restore the service-role bearer without errors."""
+    """Capture postgrest.auth(key) calls AND expose a writable session
+    so restore_service_bearer can set the Authorization header on the
+    fake client during tests (same mechanism as production)."""
 
     def __init__(self) -> None:
         self.auth_calls: list[Any] = []
+        self.session = _FakeSession()
 
     def auth(self, key: Any) -> None:
+        # Legacy hook — kept so old assertions still pass. In real
+        # supabase-py 2.x this returns a new client; the singleton's
+        # session.headers is NOT mutated here.
         self.auth_calls.append(key)
 
 
