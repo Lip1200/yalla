@@ -16,12 +16,12 @@ Patient-app (Expo) reste mobile-only — testé via Expo Go sur téléphone, pas
 
 ## Pré-requis
 
-- Un droplet DigitalOcean basic `s-1vcpu-1gb`, ~5 €/mois (le tien : `yalla-ubuntu-s-1vcpu-1gb-ams2`).
+- Un droplet DigitalOcean basic `s-1vcpu-1gb`, ~5 €/mois (le notre : `yalla-ubuntu-s-1vcpu-1gb-ams2`).
 - L'IP publique du droplet (visible dans le dashboard DO).
 - Accès SSH (`ssh root@<IP>`).
 - Les migrations Supabase 001-012 déjà appliquées sur le projet **prod** (issue #31 — à confirmer dans le SQL editor).
 
-## 1. Préparer le droplet (premier setup, ~5 minutes)
+## 1. Préparer le droplet (premier setup)
 
 SSH dans le droplet :
 
@@ -196,10 +196,10 @@ Les migrations Supabase 001 à 012 sont-elles appliquées en prod ? Voir issue #
 
 ## Coût récapitulatif
 
-- Droplet `s-1vcpu-1gb` Amsterdam : **~5 €/mois**
+- Droplet `s-1vcpu-1gb` Amsterdam : **~6CHF/mois**
 - Supabase free tier : **0 €** (suffit pour < 50k requêtes / mois en démo)
 - DNS `nip.io` : **0 €**
-- Domaine custom (optionnel) : ~10 €/an
-- TheFork API : **0 €** (mode mock par défaut)
+- Domaine custom (optionnel) : ~10 CHF/an
+- TheFork API : **0 CHF** (partenariat) 
 
-**Total : ~5 €/mois.**
+**Total : ~ 6CHF/mois.**
