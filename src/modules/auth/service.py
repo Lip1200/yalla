@@ -241,6 +241,16 @@ def setup_account_password(payload: SetupPasswordRequest) -> AuthSession:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Création du compte impossible : {exc}",
         ) from exc
+    finally:
+        # CRITICAL — sign_up mutates the postgrest client's bearer to the
+        # newly-created patient's JWT, which would make the profile-link
+        # UPDATE and the token-burn UPDATE below run under that patient
+        # under RLS instead of the service-role key. Without this
+        # restoration the profile is never linked to auth_user_id and
+        # the patient's NEXT login boots into an empty session (the
+        # demo-day bug). Same pattern as login / _do_signup / refresh.
+        from src.core.config import settings as _settings
+        supabase_client.postgrest.auth(_settings.supabase_key)
 
     if signup_response.user is None:
         raise HTTPException(

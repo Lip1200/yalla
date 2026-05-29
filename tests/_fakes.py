@@ -197,6 +197,9 @@ class FakeAuth:
     def __init__(self) -> None:
         self._get_user_side_effect: BaseException | None = None
         self._get_user_response: Any = None
+        self._sign_up_side_effect: BaseException | None = None
+        self._sign_up_response: Any = None
+        self.sign_up_calls: list[dict[str, Any]] = []
 
     def set_get_user_response(self, response: Any) -> None:
         self._get_user_response = response
@@ -212,6 +215,22 @@ class FakeAuth:
         if self._get_user_response is not None:
             return self._get_user_response
         raise RuntimeError("FakeAuth.get_user: no response configured")
+
+    def set_sign_up_response(self, response: Any) -> None:
+        self._sign_up_response = response
+        self._sign_up_side_effect = None
+
+    def set_sign_up_error(self, exc: BaseException) -> None:
+        self._sign_up_side_effect = exc
+        self._sign_up_response = None
+
+    def sign_up(self, payload: dict) -> Any:
+        self.sign_up_calls.append(payload)
+        if self._sign_up_side_effect is not None:
+            raise self._sign_up_side_effect
+        if self._sign_up_response is not None:
+            return self._sign_up_response
+        raise RuntimeError("FakeAuth.sign_up: no response configured")
 
 
 class FakePostgrest:
