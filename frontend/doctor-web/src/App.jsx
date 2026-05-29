@@ -55,8 +55,8 @@ export default function App() {
   const [patientAccountForm, setPatientAccountForm] = useState({
     fullName: "",
     email: "",
-    age: "45",
-    primaryGoal: "Démarrer le suivi Yalla",
+    age: "",
+    primaryGoal: "",
   });
   const [creatingPatientAccount, setCreatingPatientAccount] = useState(false);
   const [patientAccountResult, setPatientAccountResult] = useState(null);
