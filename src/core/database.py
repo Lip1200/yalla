@@ -24,10 +24,24 @@ def restore_service_bearer() -> None:
     patient's second login bootstrapped with no profile (the demo bug
     that #47 / #48 *attempted* to fix but didn't actually).
 
-    The reliable restore is direct header assignment on the singleton's
-    session, which IS what supabase-py uses to attach the bearer on each
-    request. Call this from every `finally` after a supabase-py auth call.
+    The reliable restore is direct header assignment. CRITICAL — two
+    header dicts live on the postgrest singleton and BOTH must be reset:
+
+      * `postgrest.session.headers` — used by raw httpx requests.
+      * `postgrest.headers`         — used by the `.table().select()`
+                                       builder chain. This second dict
+                                       silently overrides the session
+                                       header on every builder call.
+                                       Without resetting it, our previous
+                                       fix LOOKED right (session header
+                                       was the service key) but the
+                                       actual outgoing requests still
+                                       carried the patient's JWT —
+                                       exactly the demo-day bug, just
+                                       moved one layer down.
+
+    Call this from every `finally` after a supabase-py auth call.
     """
-    supabase_client.postgrest.session.headers["Authorization"] = (
-        f"Bearer {settings.supabase_key}"
-    )
+    bearer = f"Bearer {settings.supabase_key}"
+    supabase_client.postgrest.headers["Authorization"] = bearer
+    supabase_client.postgrest.session.headers["Authorization"] = bearer
