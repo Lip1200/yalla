@@ -19,6 +19,8 @@ def seed(fake_store) -> None:
         "share_activity": True,
         "share_challenges": True,
         "share_restaurants": True,
+        "share_posts": True,
+        "share_messages_with_expert": True,
     }
     fake_store.seed(
         "profiles",
