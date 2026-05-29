@@ -40,7 +40,6 @@ export default function OnboardingScreen({ profileId, profileName, onComplete })
   const [step, setStep] = useState(0);
   const [age, setAge] = useState("");
   const [primaryGoal, setPrimaryGoal] = useState("");
-  const [weeklyMinutes, setWeeklyMinutes] = useState("");
   const [privacyLevel, setPrivacyLevel] = useState("Partage sélectif");
   const [submitting, setSubmitting] = useState(false);
 
@@ -55,14 +54,11 @@ export default function OnboardingScreen({ profileId, profileName, onComplete })
       Alert.alert("Âge invalide", "L'âge doit être compris entre 0 et 120.");
       return;
     }
-    const minutesInt = weeklyMinutes ? parseInt(weeklyMinutes, 10) : 0;
-
     setSubmitting(true);
     try {
       const updated = await apiPatch(`/api/users/${profileId}`, {
         age: ageInt,
         primary_goal: trimmedGoal,
-        weekly_activity_minutes: minutesInt,
         privacy_level: privacyLevel,
       });
       onComplete?.(updated);
@@ -134,16 +130,6 @@ export default function OnboardingScreen({ profileId, profileName, onComplete })
           placeholder="ex. Marcher 30 minutes par jour, stabiliser ma glycémie…"
           multiline
           numberOfLines={3}
-          editable={!submitting}
-        />
-
-        <Text style={styles.label}>Activité hebdomadaire actuelle (minutes)</Text>
-        <TextInput
-          style={styles.input}
-          value={weeklyMinutes}
-          onChangeText={setWeeklyMinutes}
-          placeholder="0"
-          keyboardType="number-pad"
           editable={!submitting}
         />
 

@@ -213,8 +213,11 @@ export default function App() {
         body: JSON.stringify({
           email: patientAccountForm.email.trim(),
           full_name: patientAccountForm.fullName.trim(),
-          age: Number(patientAccountForm.age) || 45,
-          primary_goal: patientAccountForm.primaryGoal.trim() || "Démarrer le suivi Yalla",
+          // Leave age/primary_goal blank when the doctor didn't fill
+          // them — the patient completes them in the onboarding form
+          // on first launch (cf. patient-app OnboardingScreen).
+          age: patientAccountForm.age ? Number(patientAccountForm.age) : null,
+          primary_goal: patientAccountForm.primaryGoal.trim(),
         }),
       });
       const body = await response.json().catch(() => ({}));
