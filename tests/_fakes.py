@@ -40,10 +40,12 @@ class FakeQuery:
         self._limit: int | None = None
         self._order_key: str | None = None
         self._order_desc: bool = False
+        self._count_mode: str | None = None
 
     # ----- terminal modes -----
-    def select(self, *cols: str, count: str | None = None) -> "FakeQuery":  # noqa: ARG002
+    def select(self, *cols: str, count: str | None = None) -> "FakeQuery":
         self._mode = "select"
+        self._count_mode = count
         if cols:
             joined = ",".join(cols)
             self._select_cols = [c.strip() for c in joined.split(",")]
@@ -132,9 +134,10 @@ class FakeQuery:
                     key=lambda r: (r.get(self._order_key) is None, r.get(self._order_key)),
                     reverse=self._order_desc,
                 )
+            count = len(filtered) if self._count_mode == "exact" else None
             if self._limit is not None:
                 filtered = filtered[: self._limit]
-            return FakeResponse(data=deepcopy(filtered))
+            return FakeResponse(data=deepcopy(filtered), count=count)
 
         if self._mode == "insert":
             payloads = self._payload if isinstance(self._payload, list) else [self._payload]

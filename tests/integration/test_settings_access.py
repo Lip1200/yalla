@@ -25,6 +25,8 @@ def seed_patient(fake_store) -> None:
                 "share_activity": True,
                 "share_challenges": True,
                 "share_restaurants": True,
+                "share_posts": True,
+                "share_messages_with_expert": True,
             },
         ],
     )
@@ -40,6 +42,37 @@ class TestAccessFlags:
         assert body["share_activity"] is True
         assert body["share_challenges"] is True
         assert body["share_restaurants"] is True
+        assert body["share_posts"] is True
+        assert body["share_messages_with_expert"] is True
+
+    def test_patch_share_posts_persists(self, client, auth_headers) -> None:
+        # Migration 017 added share_posts as a real column — the patient
+        # toggle must round-trip via the same /access endpoint.
+        r = client.patch(
+            "/api/patients/108/settings/access",
+            json={"share_posts": False},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["share_posts"] is False
+        # The other flags stay untouched.
+        assert body["share_activity"] is True
+        assert body["share_messages_with_expert"] is True
+
+    def test_patch_share_messages_with_expert_persists(
+        self, client, auth_headers
+    ) -> None:
+        r = client.patch(
+            "/api/patients/108/settings/access",
+            json={"share_messages_with_expert": False},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["share_messages_with_expert"] is False
+        # Independent of share_posts.
+        assert body["share_posts"] is True
 
     def test_patch_one_flag_only(self, client, auth_headers) -> None:
         r = client.patch(

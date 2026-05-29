@@ -3,8 +3,8 @@
  * toggles (share_activity, share_challenges, share_restaurants,
  * share_posts, share_messages_with_expert).
  *
- * The first three flags are persisted via PATCH /api/patients/{id}/settings/access
- * (#53); the last two remain local-only until a backend column is added.
+ * All five flags are persisted via PATCH /api/patients/{id}/settings/access
+ * (migrations 016 + 017).
  */
 
 import { ScrollView, Switch, View } from "react-native";

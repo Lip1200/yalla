@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.core.security import AuthIdentity, get_current_user, get_profile_for_identity
 from src.modules.social.schemas import (
+    FeedComment,
+    FeedCommentCreate,
     FeedPost,
     FeedPostCreate,
     Friend,
@@ -18,6 +20,7 @@ from src.modules.social.schemas import (
 )
 from src.modules.social.service import (
     accept_friend_request,
+    add_comment,
     add_friend,
     add_support,
     create_group,
@@ -25,6 +28,7 @@ from src.modules.social.service import (
     get_group,
     join_group,
     leave_group,
+    list_comments,
     list_feed,
     list_friend_requests,
     list_friend_suggestions,
@@ -96,6 +100,26 @@ def unsupport_post(
 ):
     resolved = _resolve_supporting_user_id(user_id, identity)
     return remove_support(post_id, resolved)
+
+
+@router.get("/feed/{post_id}/comments", response_model=list[FeedComment])
+def read_comments(post_id: int):
+    return list_comments(post_id)
+
+
+@router.post(
+    "/feed/{post_id}/comments",
+    response_model=FeedComment,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_comment(
+    post_id: int,
+    payload: FeedCommentCreate,
+    user_id: int | None = Query(default=None, description="Required for service token; ignored for real users."),
+    identity: AuthIdentity = Depends(get_current_user),
+):
+    resolved = _resolve_supporting_user_id(user_id, identity)
+    return add_comment(post_id, resolved, payload)
 
 
 @router.get("/groups", response_model=list[Group])

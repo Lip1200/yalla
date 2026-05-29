@@ -70,8 +70,16 @@ function Composer({ onCreatePost, postContent, postType, setPostContent, setPost
 
 function FeedCard({ commentInput, comments, isLiked, onAddComment, onChangeComment, onToggleLike, post }) {
   const isAchievement = post.type === "achievement";
-  const likes = post.likes + (isLiked ? 1 : 0);
-  const commentCount = post.comments_count + comments.length;
+  // post.likes is now the authoritative count from the backend
+  // (POST /api/social/feed/{id}/support updates it in place). Don't
+  // add isLiked client-side or the user's own like is double-counted.
+  const likes = post.likes;
+  // post.comments_count is the authoritative count from the backend
+  // (POST /api/social/feed/{id}/comments bumps it). The local `comments`
+  // array is just the cached bubbles we render below — don't add its
+  // length or each new comment is double-counted after the optimistic
+  // update is reconciled.
+  const commentCount = post.comments_count;
 
   return (
     <View style={styles.card}>

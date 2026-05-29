@@ -336,8 +336,8 @@ export default function App() {
         share_activity: settingsData.share_activity,
         share_challenges: settingsData.share_challenges,
         share_restaurants: settingsData.share_restaurants,
-        share_posts: true,
-        share_messages_with_expert: true,
+        share_posts: settingsData.share_posts,
+        share_messages_with_expert: settingsData.share_messages_with_expert,
       });
 
       setSessions(await apiGet(`/api/patients/${activePatientId}/sessions`));
@@ -418,15 +418,38 @@ export default function App() {
     }
   }
 
-  function launchMicroChallenge() {
+  async function launchMicroChallenge() {
     if (!microChallengeTitle.trim()) {
       Alert.alert("Titre requis", "Veuillez donner un titre à ce défi.");
       return;
     }
-    Alert.alert("Défi lancé !", `Le défi "${microChallengeTitle}" a bien été envoyé au groupe.`);
-    setChallengeGroupTarget(null);
-    setMicroChallengeTitle("");
-    setMicroChallengeDesc("");
+    // No dedicated group-challenge backend exists. The most faithful
+    // way to "send" the challenge to the group today is to publish it
+    // as a feed achievement so every member sees it on the community
+    // tab. The group name is looked up from `groups` so the post body
+    // makes it clear which group the defi is aimed at.
+    const targetGroup = groups.find((g) => g.id === challengeGroupTarget);
+    const groupLabel = targetGroup ? ` (groupe ${targetGroup.name})` : "";
+    const body = microChallengeDesc.trim()
+      ? `${microChallengeTitle.trim()}${groupLabel}\n\n${microChallengeDesc.trim()}`
+      : `${microChallengeTitle.trim()}${groupLabel}`;
+    try {
+      const createdPost = await apiPost(`/api/patients/${activePatientId}/feed`, {
+        type: "achievement",
+        content: body,
+        achievement_label: "Nouveau défi",
+      });
+      setFeed((current) => [createdPost, ...current]);
+      setChallengeGroupTarget(null);
+      setMicroChallengeTitle("");
+      setMicroChallengeDesc("");
+      Alert.alert(
+        "Défi lancé !",
+        `Le défi "${microChallengeTitle}" est publié dans la communauté.`,
+      );
+    } catch (error) {
+      Alert.alert("Défi non publié", error.message);
+    }
   }
 
   async function pickImage() {
@@ -516,10 +539,14 @@ export default function App() {
   }
 
   async function toggleAccess(key) {
-    // Persisted backend flags: share_activity, share_challenges, share_restaurants.
-    // The patient-app also exposes share_posts / share_messages_with_expert as
-    // UI-only switches for now (no backend column yet); those stay local.
-    const persistedKeys = new Set(["share_activity", "share_challenges", "share_restaurants"]);
+    // All five flags are now persisted on profiles via migration 017.
+    const persistedKeys = new Set([
+      "share_activity",
+      "share_challenges",
+      "share_restaurants",
+      "share_posts",
+      "share_messages_with_expert",
+    ]);
     const nextValue = !accessSettings?.[key];
     setAccessSettings((current) => ({ ...current, [key]: nextValue }));
     if (!persistedKeys.has(key)) return;
@@ -542,29 +569,79 @@ export default function App() {
     }
   }
 
-  function toggleLike(postId) {
+  async function toggleLike(postId) {
+    const wasLiked = likedPosts.has(postId);
+    // Optimistic flip — UI reflects the user action immediately, we
+    // reconcile against the backend's authoritative count below.
     setLikedPosts((current) => {
       const next = new Set(current);
-      if (next.has(postId)) {
-        next.delete(postId);
-      } else {
-        next.add(postId);
-      }
+      if (wasLiked) next.delete(postId);
+      else next.add(postId);
       return next;
     });
+    try {
+      const response = wasLiked
+        ? await apiDeleteVerb(`/api/social/feed/${postId}/support`)
+        : await apiPost(`/api/social/feed/${postId}/support`, {});
+      if (response && typeof response.likes === "number") {
+        setFeed((current) =>
+          current.map((p) => (p.id === postId ? { ...p, likes: response.likes } : p)),
+        );
+      }
+    } catch (error) {
+      // Roll back the optimistic flip.
+      setLikedPosts((current) => {
+        const next = new Set(current);
+        if (wasLiked) next.add(postId);
+        else next.delete(postId);
+        return next;
+      });
+      Alert.alert("Action impossible", error.message);
+    }
   }
 
-  function addComment(postId) {
+  async function addComment(postId) {
     const text = commentInputs[postId]?.trim();
     if (!text) {
       return;
     }
-
+    const draftText = text;
+    setCommentInputs((current) => ({ ...current, [postId]: "" }));
+    // Optimistic add — temporary id; replaced when the server responds.
+    const tempId = `tmp-${Date.now()}`;
     setCommentsByPost((current) => ({
       ...current,
-      [postId]: [...(current[postId] ?? []), { id: Date.now(), author: profile.full_name, text }],
+      [postId]: [
+        ...(current[postId] ?? []),
+        { id: tempId, author: profile.full_name, text: draftText },
+      ],
     }));
-    setCommentInputs((current) => ({ ...current, [postId]: "" }));
+    try {
+      const created = await apiPost(`/api/social/feed/${postId}/comments`, {
+        content: draftText,
+      });
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: (current[postId] ?? []).map((c) =>
+          c.id === tempId
+            ? { id: created.id, author: created.author_name, text: created.content }
+            : c,
+        ),
+      }));
+      // Bump the denormalized counter so the action row updates.
+      setFeed((current) =>
+        current.map((p) =>
+          p.id === postId ? { ...p, comments_count: (p.comments_count ?? 0) + 1 } : p,
+        ),
+      );
+    } catch (error) {
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: (current[postId] ?? []).filter((c) => c.id !== tempId),
+      }));
+      setCommentInputs((current) => ({ ...current, [postId]: draftText }));
+      Alert.alert("Commentaire non envoyé", error.message);
+    }
   }
 
   async function joinChallenge(challenge) {
@@ -670,27 +747,66 @@ export default function App() {
     }
   }
 
-  function sendMessage() {
+  async function sendMessage() {
     const text = messageDraft.trim();
     if (!text || !selectedConversationId) {
       return;
     }
-
+    const convId = selectedConversationId;
+    const tempId = `tmp-${Date.now()}`;
+    // Optimistic insert so the bubble appears instantly.
     setMessageThreads((current) => ({
       ...current,
-      [selectedConversationId]: [
-        ...(current[selectedConversationId] ?? []),
-        { id: Date.now(), fromMe: true, text, time: "Maintenant" },
+      [convId]: [
+        ...(current[convId] ?? []),
+        { id: tempId, fromMe: true, text, time: "Envoi..." },
       ],
     }));
-    setMessages((current) =>
-      current.map((conversation) =>
-        conversation.id === selectedConversationId
-          ? { ...conversation, last_message: text, unread_count: 0, updated_at: new Date().toISOString() }
-          : conversation,
-      ),
-    );
     setMessageDraft("");
+    try {
+      const created = await apiPost(
+        `/api/messaging/conversations/${convId}/messages`,
+        { content: text },
+      );
+      // Swap the temp bubble for the server-confirmed one.
+      setMessageThreads((current) => ({
+        ...current,
+        [convId]: (current[convId] ?? []).map((m) =>
+          m.id === tempId
+            ? {
+                id: created.id,
+                fromMe: true,
+                text: created.content,
+                time: new Date(created.sent_at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              }
+            : m,
+        ),
+      }));
+      setMessages((current) =>
+        current.map((conversation) =>
+          conversation.id === convId
+            ? {
+                ...conversation,
+                last_message: created.content,
+                unread_count: 0,
+                updated_at: created.sent_at,
+              }
+            : conversation,
+        ),
+      );
+    } catch (error) {
+      // Roll back the optimistic bubble and restore the draft so the
+      // user can retry without re-typing.
+      setMessageThreads((current) => ({
+        ...current,
+        [convId]: (current[convId] ?? []).filter((m) => m.id !== tempId),
+      }));
+      setMessageDraft(text);
+      Alert.alert("Envoi impossible", error.message);
+    }
   }
 
   if (!fontsLoaded) {

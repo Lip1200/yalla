@@ -5,6 +5,8 @@ from fastapi import HTTPException, status
 from src.core.database import supabase_client
 from src.modules.social.schemas import (
     AppRole,
+    FeedComment,
+    FeedCommentCreate,
     FeedPost,
     FeedPostCreate,
     Friend,
@@ -22,6 +24,7 @@ from src.modules.social.schemas import (
 
 FEED_TABLE = "feed_posts"
 FEED_SUPPORTS_TABLE = "feed_post_supports"
+FEED_COMMENTS_TABLE = "feed_post_comments"
 PROFILES_TABLE = "profiles"
 GROUPS_TABLE = "groups"
 GROUP_MEMBERS_TABLE = "group_members"
@@ -104,6 +107,83 @@ def _refresh_likes_count(post_id: int) -> SupportResponse:
         "id", post_id
     ).execute()
     return SupportResponse(post_id=post_id, likes=new_likes)
+
+
+def list_comments(post_id: int) -> list[FeedComment]:
+    """Return all comments on `post_id`, oldest first so the UI can append
+    new ones at the bottom without resorting."""
+    _get_post_or_404(post_id)
+    response = (
+        supabase_client.table(FEED_COMMENTS_TABLE)
+        .select("*")
+        .eq("post_id", post_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return [_row_to_comment(row) for row in response.data]
+
+
+def add_comment(post_id: int, author_id: int, payload: FeedCommentCreate) -> FeedComment:
+    """Persist a comment and refresh the denormalized
+    `feed_posts.comments_count` counter."""
+    _get_post_or_404(post_id)
+    author = _get_profile_or_404(author_id)
+    insert = (
+        supabase_client.table(FEED_COMMENTS_TABLE)
+        .insert(
+            {
+                "post_id": post_id,
+                "author_id": author_id,
+                "content": payload.content,
+            }
+        )
+        .execute()
+    )
+    if not insert.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Commentaire non enregistré.",
+        )
+    _refresh_comments_count(post_id)
+    return _row_to_comment({**insert.data[0], "author_name": author["full_name"]})
+
+
+def _refresh_comments_count(post_id: int) -> None:
+    """Recompute comments_count for `post_id` from feed_post_comments and
+    update the denormalized counter so the feed listing reads stay fast."""
+    count_resp = (
+        supabase_client.table(FEED_COMMENTS_TABLE)
+        .select("post_id", count="exact")
+        .eq("post_id", post_id)
+        .execute()
+    )
+    new_count = count_resp.count or 0
+    supabase_client.table(FEED_TABLE).update({"comments_count": new_count}).eq(
+        "id", post_id
+    ).execute()
+
+
+def _row_to_comment(row: dict) -> FeedComment:
+    created_at_raw = row.get("created_at")
+    created_at = (
+        datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+        if isinstance(created_at_raw, str)
+        else created_at_raw or datetime.now()
+    )
+    author_name = row.get("author_name")
+    if not author_name:
+        # The insert path passes it through; for the list path we resolve
+        # the name eagerly so the client gets a usable card.
+        author = _get_profile_or_404(row["author_id"])
+        author_name = author["full_name"]
+    return FeedComment(
+        id=row["id"],
+        post_id=row["post_id"],
+        author_id=row["author_id"],
+        author_name=author_name,
+        content=row["content"],
+        created_at=created_at,
+    )
 
 
 def _get_post_or_404(post_id: int) -> dict:

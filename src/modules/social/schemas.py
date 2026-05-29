@@ -39,6 +39,19 @@ class SupportResponse(BaseModel):
     likes: int = Field(ge=0)
 
 
+class FeedCommentCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class FeedComment(BaseModel):
+    id: int
+    post_id: int
+    author_id: int
+    author_name: str
+    content: str
+    created_at: datetime
+
+
 class GroupCategory(StrEnum):
     WALKING = "walking"
     COOKING = "cooking"
