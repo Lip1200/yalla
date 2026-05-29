@@ -235,6 +235,21 @@ def setup_account_password(payload: SetupPasswordRequest) -> AuthSession:
             }
         )
     except Exception as exc:
+        # Surface the "email already registered" case as actionable
+        # guidance: this happens when the doctor invited the same
+        # email twice. Supabase rejects sign_up but the patient has
+        # no way to know that from "Création du compte impossible: ...".
+        message = str(exc).lower()
+        if "already" in message or "registered" in message or "exists" in message:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Cette adresse email est déjà associée à un autre compte "
+                    "Yalla. Demande à ton médecin de vérifier ton dossier, "
+                    "ou connecte-toi avec le mot de passe que tu as défini "
+                    "la première fois."
+                ),
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Création du compte impossible : {exc}",

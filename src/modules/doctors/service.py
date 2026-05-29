@@ -60,6 +60,32 @@ def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> Pat
     linked back (cf. /api/auth/setup-password, issue #33)."""
     _get_doctor(doctor_id)
 
+    # Reject duplicate-email invitations early. Without this check, the
+    # second profile would be created but its activation would later
+    # fail at sign_up (email already in auth.users), and the
+    # profiles.auth_user_id unique constraint would block linking
+    # anyway. Surface it now so the doctor can fix the dossier instead
+    # of leaving an orphan row behind.
+    target_email = str(payload.email).lower()
+    existing_token = (
+        supabase_client.table("account_setup_tokens")
+        .select("patient_id, used_at")
+        .eq("email", target_email)
+        .execute()
+        .data
+    )
+    if existing_token:
+        any_active = any(t.get("used_at") is None for t in existing_token)
+        any_used = any(t.get("used_at") is not None for t in existing_token)
+        detail = (
+            "Une invitation est déjà en attente pour cet email."
+            if any_active
+            else "Cette adresse email correspond déjà à un patient activé."
+            if any_used
+            else "Cette adresse email a déjà été utilisée pour une invitation."
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
     next_id = _next_patient_id()
     insert_data = {
         "id": next_id,
