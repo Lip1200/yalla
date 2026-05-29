@@ -83,8 +83,13 @@ class DoctorDashboard(BaseModel):
 class PatientAccountCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=120)
-    age: int = Field(default=45, ge=0, le=120)
-    primary_goal: str = Field(default="Démarrer le suivi Yalla", max_length=180)
+    # Both age and primary_goal are intentionally optional. When the
+    # doctor leaves them blank, the patient fills them in via the
+    # onboarding form on first launch (patient-app OnboardingScreen +
+    # the `isFreshProfile` gate in App.js). A non-empty primary_goal
+    # here suppresses that onboarding.
+    age: int | None = Field(default=None, ge=0, le=120)
+    primary_goal: str = Field(default="", max_length=180)
 
 
 class PatientAccountCreated(BaseModel):

@@ -66,7 +66,10 @@ def create_patient_account(doctor_id: int, payload: PatientAccountCreate) -> Pat
         "full_name": payload.full_name.strip(),
         "role": "patient",
         "age": payload.age,
-        "primary_goal": payload.primary_goal.strip() or "Démarrer le suivi Yalla",
+        # Leave primary_goal empty when the doctor didn't specify one.
+        # An empty value is the trigger for OnboardingScreen on the
+        # patient side — the patient picks their own goal on activation.
+        "primary_goal": payload.primary_goal.strip(),
         "has_app_access": True,
         "privacy_level": "Partage sélectif",
         "activity_completion_rate": 0,
