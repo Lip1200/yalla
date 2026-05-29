@@ -250,6 +250,10 @@ class FakePostgrest:
     def __init__(self) -> None:
         self.auth_calls: list[Any] = []
         self.session = _FakeSession()
+        # Mirror the real supabase-py SyncPostgrestClient layout: there
+        # are TWO writable header dicts and restore_service_bearer
+        # touches both. See src/core/database.py docstring.
+        self.headers: dict[str, Any] = {}
 
     def auth(self, key: Any) -> None:
         # Legacy hook — kept so old assertions still pass. In real
