@@ -99,6 +99,8 @@ class AccessFlagsUpdate(BaseModel):
     share_activity: bool | None = None
     share_challenges: bool | None = None
     share_restaurants: bool | None = None
+    share_posts: bool | None = None
+    share_messages_with_expert: bool | None = None
 
 
 class PatientSettings(BaseModel):
@@ -106,6 +108,8 @@ class PatientSettings(BaseModel):
     share_activity: bool
     share_challenges: bool
     share_restaurants: bool
+    share_posts: bool
+    share_messages_with_expert: bool
 
 
 class SupportSessionCreate(BaseModel):

@@ -36,8 +36,8 @@ Classification:
 | Composer: « Caméra » (pick image) | ✅ | `pickImage` → `ImagePicker.launchImageLibraryAsync` | natif |
 | Composer: « X » clear image | 🟡 | `clearImage` | local |
 | Composer: « Publier » | ✅ | `createPost` → POST `/api/social/feed` | persiste |
-| Feed: ❤️ like | ❌ **MOCK** | `toggleLike` → Set local uniquement | **pas de POST** |
-| Feed: « Commenter » send | ❌ **MOCK** | `addComment` → state local uniquement | **pas de POST** |
+| Feed: ❤️ like | ✅ | `toggleLike` → POST/DELETE `/api/social/feed/{id}/support` | persiste, count autoritaire backend |
+| Feed: « Commenter » send | ✅ | `addComment` → POST `/api/social/feed/{id}/comments` | persiste (migration 018) |
 | Demandes reçues: Accepter | ✅ | `acceptFriendRequest` → POST `/accept` | persiste |
 | Demandes reçues: Refuser | ✅ | `rejectFriendRequest` → POST `/reject` | persiste |
 | Demandes envoyées: Annuler | ✅ | `cancelSentRequest` → DELETE friend | persiste |
@@ -46,7 +46,7 @@ Classification:
 | Group rail: « Rejoindre » | ✅ | `joinGroup` → POST `/groups/{id}/join` | persiste, 409 si déjà membre |
 | Group rail: « Lancer un défi » (expert) | 🟡 | `setChallengeGroupTarget(group.id)` | ouvre modale |
 | Lancer défi: « X » fermer | 🟡 | `setChallengeGroupTarget(null)` | local |
-| Lancer défi: « Envoyer » | ❌ **MOCK** | `launchMicroChallenge` → Alert + reset state | **pas de POST** |
+| Lancer défi: « Envoyer » | ✅ | `launchMicroChallenge` → POST `/api/patients/{id}/feed` (achievement) | publié dans la communauté |
 | Form nouveau groupe: catégorie | 🟡 | `setNewGroupCategory` | local |
 | Form nouveau groupe: « X » fermer | 🟡 | `setIsGroupFormVisible(false)` | local |
 | Form nouveau groupe: « Créer » | ✅ | `createGroup` → POST `/api/social/groups` | persiste |
@@ -73,7 +73,7 @@ Classification:
 | Panel: « X » fermer | 🟡 | `setIsNewConvModalVisible(false)` | local |
 | Panel: ami → écrire | ✅ | `startConversationWith` → POST `/messages/start` | persiste, idempotent |
 | Rail: chip conversation | 🟡 | `setSelectedConversationId(item.id)` | local |
-| Composer: « Envoyer » | ❌ **MOCK** | `sendMessage` → état local uniquement | **pas de POST**, le message disparaît au reload |
+| Composer: « Envoyer » | ✅ | `sendMessage` → POST `/api/messaging/conversations/{id}/messages` | persiste |
 
 ### `screens/RestaurantsScreen.js`
 
@@ -89,8 +89,8 @@ Classification:
 | Switch « Activité physique » | ✅ | `toggleAccess("share_activity")` → PATCH `/settings/access` | persiste |
 | Switch « Défis » | ✅ | `toggleAccess("share_challenges")` → PATCH | persiste |
 | Switch « Restaurants » | ✅ | `toggleAccess("share_restaurants")` → PATCH | persiste |
-| Switch « Activité sociale » (share_posts) | ❌ **MOCK** | `toggleAccess("share_posts")` → state local seulement | **pas de colonne backend** (doc commit `feat(settings)`) |
-| Switch « Messages avec expert » | ❌ **MOCK** | `toggleAccess("share_messages_with_expert")` → idem | **pas de colonne backend** |
+| Switch « Activité sociale » (share_posts) | ✅ | `toggleAccess("share_posts")` → PATCH `/settings/access` | persiste (migration 017) |
+| Switch « Messages avec expert » | ✅ | `toggleAccess("share_messages_with_expert")` → PATCH | persiste (migration 017) |
 
 ### `screens/ProfileScreen.js`
 
@@ -165,18 +165,14 @@ Classification:
 
 | Catégorie | Patient-app | Doctor-web | Total |
 |---|---|---|---|
-| ✅ WIRED (backend persiste) | 21 | 9 | **30** |
+| ✅ WIRED (backend persiste) | 26 | 9 | **35** |
 | 🟡 LOCAL (navigation / formulaire) | 17 | 4 | **21** |
-| ❌ MOCK (à connecter) | 5 | 0 | **5** |
+| ❌ MOCK (à connecter) | 0 | 0 | **0** |
 
-**Boutons MOCK à connecter au backend (par priorité):**
+**Tous les boutons MOCK ont été câblés** (branche `feat/wire-mock-buttons`, 2026-05-29) :
 
-1. ❌ **Feed like (`toggleLike`)** — POST `/api/social/feed/{post_id}/support` ; endpoint **existe déjà** (`add_support` / `remove_support`). 15 min.
-2. ❌ **Feed comments (`addComment`)** — POST `/api/social/feed/{post_id}/comments` ; endpoint **n'existe pas** ; nécessite migration table `feed_post_comments` + service + router. 1h-1h30.
-3. ❌ **Send message (`sendMessage`)** — POST `/api/messaging/conversations/{conv_id}/messages` ; le module `messaging/` existe (vu dans `main.py`) ; à vérifier si l'endpoint est wired. 30 min.
-4. ❌ **Launch micro-challenge to group (`launchMicroChallenge`)** — pas d'endpoint backend pour les micro-défis de groupe ; nécessite design ou retrait du bouton. 1h ou retrait (5 min).
-5. ❌ **Switches `share_posts` + `share_messages_with_expert`** — colonnes manquantes dans `profiles` ; migration + extension de `AccessFlagsUpdate`. 30 min.
-
-**Total effort pour 100% câblé:** ~4h.
-
-**Plus impactant pour la démo:** le like (#1) car visible immédiatement et l'endpoint existe.
+1. ✅ **Feed like (`toggleLike`)** — POST/DELETE `/api/social/feed/{post_id}/support`, optimistic + rollback.
+2. ✅ **Feed comments (`addComment`)** — POST `/api/social/feed/{post_id}/comments` + migration 018 (`feed_post_comments`).
+3. ✅ **Send message (`sendMessage`)** — POST `/api/messaging/conversations/{conv_id}/messages`, optimistic + rollback.
+4. ✅ **Launch micro-challenge (`launchMicroChallenge`)** — POST `/api/patients/{id}/feed` en tant qu'achievement (pas de table dédiée groupe-challenges, on tire parti du feed).
+5. ✅ **Switches `share_posts` + `share_messages_with_expert`** — migration 017 + extension de `AccessFlagsUpdate`/`PatientSettings`.

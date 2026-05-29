@@ -469,7 +469,10 @@ def get_settings(patient_id: int) -> PatientSettings:
     # legacy derived behaviour.
     row = (
         supabase_client.table("profiles")
-        .select("share_activity, share_challenges, share_restaurants")
+        .select(
+            "share_activity, share_challenges, share_restaurants, "
+            "share_posts, share_messages_with_expert"
+        )
         .eq("id", patient_id)
         .limit(1)
         .execute()
@@ -481,6 +484,8 @@ def get_settings(patient_id: int) -> PatientSettings:
         share_activity=bool(flags.get("share_activity", True)),
         share_challenges=bool(flags.get("share_challenges", True)),
         share_restaurants=bool(flags.get("share_restaurants", True)),
+        share_posts=bool(flags.get("share_posts", True)),
+        share_messages_with_expert=bool(flags.get("share_messages_with_expert", True)),
     )
 
 
