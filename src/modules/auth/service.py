@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 
-from src.core.database import supabase_client
+from src.core.database import restore_service_bearer, supabase_client
 from src.modules.auth.schemas import (
     AuthSession,
     AuthUser,
@@ -79,14 +79,12 @@ def _do_signup(
             detail=f"Inscription échouée : {exc}",
         ) from exc
     finally:
-        # supabase-py's auth.sign_up sets the postgrest client's bearer to
-        # the freshly-created user's JWT, which would make the subsequent
-        # profile-row insert in _ensure_profile_for_auth_user run under
-        # the new user's identity (subject to RLS) instead of the
-        # service-role key. Restore the service-role bearer so the
-        # insert succeeds. Same fix as get_current_user (#55 incident).
-        from src.core.config import settings as _settings
-        supabase_client.postgrest.auth(_settings.supabase_key)
+        # See restore_service_bearer's docstring — sign_up stamps the
+        # new user's JWT on the postgrest singleton, and the
+        # postgrest.auth() setter does NOT mutate it back. Restore via
+        # direct header assignment so _ensure_profile_for_auth_user
+        # runs under service-role and bypasses RLS.
+        restore_service_bearer()
 
     if response.user is None:
         raise HTTPException(
@@ -248,9 +246,9 @@ def setup_account_password(payload: SetupPasswordRequest) -> AuthSession:
         # under RLS instead of the service-role key. Without this
         # restoration the profile is never linked to auth_user_id and
         # the patient's NEXT login boots into an empty session (the
-        # demo-day bug). Same pattern as login / _do_signup / refresh.
-        from src.core.config import settings as _settings
-        supabase_client.postgrest.auth(_settings.supabase_key)
+        # demo-day bug). Direct-header restore — postgrest.auth() is
+        # misleading in supabase-py 2.x (see restore_service_bearer).
+        restore_service_bearer()
 
     if signup_response.user is None:
         raise HTTPException(
@@ -315,11 +313,9 @@ def login(payload: LoginRequest) -> AuthSession:
             detail="Identifiants invalides.",
         ) from exc
     finally:
-        # Restore the service-role bearer the same way get_current_user does
-        # — sign_in_with_password mutates postgrest's auth state in
-        # supabase-py 2.30.
-        from src.core.config import settings as _settings
-        supabase_client.postgrest.auth(_settings.supabase_key)
+        # Restore the service-role bearer the same way get_current_user
+        # does — sign_in_with_password mutates postgrest's auth state.
+        restore_service_bearer()
 
     if response.user is None or response.session is None:
         raise HTTPException(
@@ -331,7 +327,6 @@ def login(payload: LoginRequest) -> AuthSession:
 
 
 def refresh(payload: RefreshRequest) -> AuthSession:
-    from src.core.config import settings as _settings
     try:
         response = supabase_client.auth.refresh_session(payload.refresh_token)
     except Exception as exc:
@@ -341,7 +336,7 @@ def refresh(payload: RefreshRequest) -> AuthSession:
         ) from exc
     finally:
         # Same fix as login/sign_up — restore service-role bearer.
-        supabase_client.postgrest.auth(_settings.supabase_key)
+        restore_service_bearer()
 
     if response.user is None or response.session is None:
         raise HTTPException(

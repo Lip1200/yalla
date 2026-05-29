@@ -3,7 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from src.core.config import settings
-from src.core.database import supabase_client
+from src.core.database import restore_service_bearer, supabase_client
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -51,9 +51,10 @@ def get_current_user(
         # auth state to the caller's JWT, which then causes every
         # subsequent .table() query in the request to be subject to RLS
         # under that user's identity instead of bypassing it via the
-        # service-role key. The public `postgrest.auth(token)` setter
-        # restores both the internal _bearer and the session header.
-        supabase_client.postgrest.auth(settings.supabase_key)
+        # service-role key. See restore_service_bearer's docstring —
+        # postgrest.auth(key) does NOT mutate the singleton in
+        # supabase-py 2.x; we set the session header directly.
+        restore_service_bearer()
 
     if response is None or response.user is None:
         raise HTTPException(

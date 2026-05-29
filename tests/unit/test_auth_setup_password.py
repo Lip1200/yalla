@@ -20,11 +20,11 @@ These tests prevent that regression by:
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
 
-from src.core.config import settings
 from src.modules.auth import service as auth_service
 from src.modules.auth.schemas import SetupPasswordRequest
 from tests._fakes import FakeSupabaseClient
@@ -96,8 +96,16 @@ class TestSetupAccountPasswordHappyPath:
         assert token_row["used_at"] is not None
 
     def test_postgrest_auth_restored_after_sign_up(
-        self, fake_client: FakeSupabaseClient
+        self,
+        fake_client: FakeSupabaseClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        # Spy on restore_service_bearer — that's the real mechanism that
+        # mutates the postgrest singleton's Authorization header in
+        # supabase-py 2.x (postgrest.auth() does not, see
+        # core/database.py docstring).
+        spy = MagicMock()
+        monkeypatch.setattr(auth_service, "restore_service_bearer", spy)
         fake_client.auth.set_sign_up_response(
             SimpleNamespace(user=_fake_user(), session=_fake_session())
         )
@@ -106,14 +114,15 @@ class TestSetupAccountPasswordHappyPath:
             SetupPasswordRequest(token="GOODTOKEN", password="hunter22!")
         )
 
-        # The service-role bearer must have been restored before the
-        # follow-up UPDATEs ran — otherwise they hit RLS as the patient
-        # and silently no-op (the demo bug).
-        assert settings.supabase_key in fake_client.postgrest.auth_calls
+        spy.assert_called()
 
     def test_postgrest_auth_restored_even_on_sign_up_error(
-        self, fake_client: FakeSupabaseClient
+        self,
+        fake_client: FakeSupabaseClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        spy = MagicMock()
+        monkeypatch.setattr(auth_service, "restore_service_bearer", spy)
         fake_client.auth.set_sign_up_error(RuntimeError("email already taken"))
 
         with pytest.raises(HTTPException) as exc:
@@ -121,9 +130,9 @@ class TestSetupAccountPasswordHappyPath:
                 SetupPasswordRequest(token="GOODTOKEN", password="hunter22!")
             )
         assert exc.value.status_code == 400
-        # Even when sign_up fails, postgrest must be restored to
-        # service-role so the *next* unrelated request isn't poisoned.
-        assert settings.supabase_key in fake_client.postgrest.auth_calls
+        # Even when sign_up fails, the bearer must be restored so the
+        # *next* unrelated request isn't poisoned by the leftover JWT.
+        spy.assert_called()
 
 
 class TestSetupAccountPasswordRejections:
