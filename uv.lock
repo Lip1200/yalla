@@ -1436,6 +1436,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pyjwt" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -1454,6 +1455,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pyjwt", specifier = ">=2.12.1" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
 ]
