@@ -11,9 +11,24 @@ exactly as it does today — only the env vars change.
 | `docker-compose.override.yml` | Adds Postgres + GoTrue + PostgREST + Storage + Kong + Studio to the existing compose graph |
 | `.env.example` | Template for the secrets the override needs |
 | `kong.yml` | Declarative gateway routing — fans `/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*` to the right service |
-| `postgres-init/01-role-passwords.sh` | Sets passwords on the Supabase service roles at first DB boot |
+| `postgres-init/01-roles-schemas.sh` | Creates the Supabase service roles + schemas + grants + JWT settings at first DB boot |
 | `scripts/gen-jwt.py` | Generates the `ANON_KEY` + `SERVICE_ROLE_KEY` JWTs from `JWT_SECRET` |
 | `scripts/migrate-from-cloud.sh` | One-shot `pg_dump` from the cloud project into the local DB |
+
+## Verified end-to-end
+
+The full stack was booted locally (Docker on macOS arm64) and an
+end-to-end smoke test passed:
+
+```
+backend → kong:8000/rest/v1 → PostgREST → Postgres
+GET /api/users/ (with service-token)  →  200 OK, []
+```
+
+All six services (db, auth, rest, storage, kong, backend) come up
+healthy, the 19 SQL migrations (000_baseline + 001 through 018) apply
+cleanly, and supabase-py's chain (`.table().select().execute()`)
+returns the expected payload through the Kong gateway.
 
 ## Quick start
 

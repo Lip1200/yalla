@@ -79,10 +79,19 @@ services:
       timeout: 3s
       retries: 5
     environment:
+      # GoTrue v2 expects BOTH the prefixed and unprefixed forms for
+      # some required keys — the bare API_EXTERNAL_URL fails validation
+      # otherwise, even with GOTRUE_API_EXTERNAL_URL set.
+      API_EXTERNAL_URL: ${SITE_URL}
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
+      GOTRUE_API_EXTERNAL_URL: ${SITE_URL}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      # search_path=auth keeps GoTrue's bookkeeping (schema_migrations,
+      # users, sessions…) in its own schema instead of fighting with
+      # the app tables in public. The DB role only has CREATE on auth
+      # (granted via ownership in postgres-init).
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${SITE_URL},yalla://*
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
@@ -139,7 +148,9 @@ services:
 
   # --- Kong gateway — fans /auth/v1, /rest/v1, /storage/v1 ---
   kong:
-    image: kong:2.8
+    # kong:2.8 has no arm64 manifest — using 3.4 (multi-arch).
+    # Declarative config format is backwards-compatible from 2.x.
+    image: kong:3.4
     container_name: yalla-kong
     depends_on:
       auth:
