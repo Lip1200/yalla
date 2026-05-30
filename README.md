@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <em>Projet de Master — From Concept to Market, UNIGE 2026.</em><br/>
+  <em>Projet du cours de Master: From Concept to Market, UNIGE 2026.</em><br/>
   Médecin, patient et patient-expert collaborent sur un seul produit, avec un contrôle granulaire du partage de données.
 </p>
 
